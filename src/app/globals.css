@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────
+   Design Tokens — Dark Academic Palette
+   ────────────────────────────────────────── */
+:root {
+  --background: #0a0a0f;
+  --surface: #12121a;
+  --surface-elevated: #1a1a26;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+
+  --text-primary: #f0f0f5;
+  --text-secondary: #a0a0b8;
+  --text-muted: #5c5c72;
+
+  --accent-indigo: #6366f1;
+  --accent-purple: #a855f7;
+  --accent-pink: #ec4899;
+}
+
+/* ──────────────────────────────────────────
+   Base Resets
+   ────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+/* ──────────────────────────────────────────
+   Glassmorphism Card
+   ────────────────────────────────────────── */
+.glass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-hover);
+}
+
+/* ──────────────────────────────────────────
+   Credit Glow
+   ────────────────────────────────────────── */
+.credit-glow {
+  color: var(--accent-indigo);
+  text-shadow:
+    0 0 20px rgba(99, 102, 241, 0.4),
+    0 0 40px rgba(99, 102, 241, 0.2);
+}
+
+/* ──────────────────────────────────────────
+   Animations
+   ────────────────────────────────────────── */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.6s ease-out both;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 6s ease-in-out infinite;
+}
+
+/* Stagger delays */
+.animate-fade-in:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.animate-fade-in:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+/* ──────────────────────────────────────────
+   Scrollbar
+   ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ──────────────────────────────────────────
+   Print Styles — Cheat Sheet PDF Output
+   ────────────────────────────────────────── */
+@media print {
+  /* Reset everything for clean PDF output */
+  html, body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Exact Letter page size with zero browser margins */
+  @page {
+    size: letter;
+    margin: 0;
+  }
+
+  /* Hide all UI controls, headers, nav */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Sheet pages get their own page break */
+  .sheet-page {
+    page-break-after: always;
+    break-after: page;
+    box-shadow: none !important;
+  }
+
+  .meta-guide {
+    page-break-before: always;
+    break-before: page;
+    box-shadow: none !important;
+  }
+
+  /* KaTeX should print in pure black */
+  .katex {
+    color: black !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   Sheet Page — On-Screen Shadow Preview
+   ────────────────────────────────────────── */
+.sheet-page,
+.meta-guide {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+  margin-bottom: 24px;
+}
+
+/* Ensure LaTeX content doesn't overflow columns */
+.content-renderer .katex-display {
+  margin: 2px 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.content-renderer .katex {
+  font-size: inherit !important;
+}
