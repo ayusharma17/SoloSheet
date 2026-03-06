@@ -63,28 +63,28 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
     : null;
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--text-primary)]">
+    <div className="min-h-screen bg-white text-black selection:bg-black selection:text-white font-sans flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-white/5 bg-[var(--background)]/80 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-50 border-b-[3px] border-black bg-white">
+        <div className="max-w-[1400px] mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <BookOpen className="w-5 h-5 text-white" />
+            <div className="w-8 h-8 bg-black flex items-center justify-center">
+              <BookOpen className="w-4 h-4 text-white" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">
-              CheatSheet<span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">AI</span>
+            <span className="text-xl font-bold tracking-tighter uppercase">
+              Solo<span className="text-[#e60000]">Sheet</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
             {/* Credits Badge */}
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-              <CreditCard className="w-4 h-4 text-indigo-400" />
-              <span className="text-sm font-medium">
-                <span className={credits > 0 ? "text-indigo-400" : "text-red-400"}>
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 border-2 border-black">
+              <CreditCard className="w-4 h-4 text-black" />
+              <span className="text-xs font-bold uppercase tracking-tight">
+                <span className={credits > 0 ? "text-black" : "text-[#e60000]"}>
                   {credits}
                 </span>{" "}
-                <span className="text-[var(--text-muted)]">credits</span>
+                <span className="text-neutral-500">credits</span>
               </span>
             </div>
 
@@ -94,17 +94,17 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
                 <Image
                   src={user.avatarUrl}
                   alt={user.fullName}
-                  width={32}
-                  height={32}
-                  className="rounded-full ring-2 ring-white/10"
+                  width={34}
+                  height={34}
+                  className="rounded-none border-2 border-black"
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-medium text-white">
-                  {user.fullName.charAt(0).toUpperCase()}
+                <div className="w-8 h-8 bg-black flex items-center justify-center text-sm font-bold text-white uppercase">
+                  {user.fullName.charAt(0)}
                 </div>
               )}
-              <span className="hidden md:block text-sm font-medium text-[var(--text-secondary)]">
+              <span className="hidden md:block text-sm font-bold uppercase tracking-tight">
                 {user.fullName}
               </span>
             </div>
@@ -112,146 +112,130 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-white/5 transition-all duration-200 cursor-pointer"
+              className="p-2 border-2 border-transparent hover:border-black transition-colors cursor-pointer"
               title="Sign Out"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-5 h-5 text-black" />
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="flex-1 w-full max-w-[1400px] mx-auto px-6 py-12 space-y-12 animate-slide-up">
         {/* Welcome Section */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Welcome back, {user.fullName.split(" ")[0]} 👋
+          <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tighter">
+            Welcome, {user.fullName.split(" ")[0]}.
           </h1>
-          <p className="text-[var(--text-secondary)] mt-1">
-            Ready to create your next exam cheat sheet?
+          <p className="text-xl text-neutral-600 font-medium mt-2">
+            Control panel. Create and manage your cheat sheets.
           </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 border-b-[3px] border-black pb-12">
           {/* Credits Card */}
-          <div className="glass-card p-6 relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-medium text-[var(--text-secondary)]">
-                  Available Credits
+          <div className="swiss-card p-6 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">
+                  Credits Remaining
                 </span>
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-                  <CreditCard className="w-5 h-5 text-indigo-400" />
-                </div>
+                <CreditCard className="w-5 h-5 text-black" />
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className={`text-4xl font-bold tabular-nums ${credits > 0 ? "credit-glow" : "text-red-400"}`}>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-6xl font-black tracking-tighter ${credits > 0 ? "text-black" : "text-[#e60000]"}`}>
                   {credits}
                 </span>
-                <span className="text-sm text-[var(--text-muted)]">remaining</span>
               </div>
-              <div className="mt-3 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
-                  style={{ width: `${Math.min((credits / 3) * 100, 100)}%` }}
-                />
-              </div>
+            </div>
+            <div className="mt-6 border-2 border-black h-3 w-full bg-white relative">
+              <div
+                className="absolute top-0 left-0 h-full bg-[#e60000] transition-all duration-500"
+                style={{ width: `${Math.min((credits / 3) * 100, 100)}%` }}
+              />
             </div>
           </div>
 
           {/* Sheets Created Card */}
-          <div className="glass-card p-6 relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-medium text-[var(--text-secondary)]">
+          <div className="swiss-card p-6 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">
                   Sheets Created
                 </span>
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-emerald-400" />
-                </div>
+                <FileText className="w-5 h-5 text-black" />
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold tabular-nums">{sheetsCreated}</span>
-                <span className="text-sm text-[var(--text-muted)]">total</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-6xl font-black tracking-tighter text-black">{sheetsCreated}</span>
               </div>
-              <p className="mt-3 text-xs text-[var(--text-muted)]">
-                {sheetsCreated === 0
-                  ? "Create your first cheat sheet ↗"
-                  : `${sheetsCreated} extraction${sheetsCreated > 1 ? "s" : ""} completed`}
-              </p>
             </div>
+            <p className="mt-6 text-xs font-bold uppercase tracking-widest text-neutral-600">
+              {sheetsCreated === 0
+                ? "Awaiting first extraction"
+                : "Extractions completed"}
+            </p>
           </div>
 
           {/* Recent Activity Card */}
-          <div className="glass-card p-6 relative overflow-hidden group sm:col-span-2 lg:col-span-1">
-            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            <div className="relative">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-medium text-[var(--text-secondary)]">
+          <div className="swiss-card p-6 sm:col-span-2 lg:col-span-1 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">
                   Last Activity
                 </span>
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-amber-400" />
-                </div>
+                <Clock className="w-5 h-5 text-black" />
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg font-medium text-[var(--text-muted)]">
-                  {lastActivity ?? "No activity yet"}
+              <div className="flex items-baseline gap-2 mt-4">
+                <span className="text-2xl font-black uppercase tracking-tight text-black line-clamp-2 leading-none">
+                  {lastActivity ?? "N/A"}
                 </span>
               </div>
-              <p className="mt-3 text-xs text-[var(--text-muted)]">
-                {lastActivity
-                  ? materials[0].course_name
-                  : "Your recent cheat sheets will appear here"}
-              </p>
             </div>
+            <p className="mt-6 text-xs font-bold uppercase tracking-widest text-neutral-600 truncate">
+              {lastActivity
+                ? materials[0].course_name
+                : "No logs available"}
+            </p>
           </div>
         </div>
 
         {/* Create Cheat Sheet CTA */}
-        <div className="glass-card p-8 relative overflow-hidden">
-          {/* Background gradient */}
-          <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 via-purple-500/5 to-pink-500/5" />
-          <div className="absolute -right-20 -top-20 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl" />
-
-          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+        <div className="swiss-card p-10 bg-[#f4f4f5]">
+          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
             <div className="flex-1">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-400" />
-                Create a New Cheat Sheet
+              <h2 className="text-3xl font-black uppercase tracking-tight flex items-center gap-3">
+                <Sparkles className="w-6 h-6 text-[#e60000]" />
+                Create New Sheet
               </h2>
-              <p className="text-[var(--text-secondary)] mt-2 text-sm max-w-lg">
-                Upload your lecture PDFs, slides, or notes and let AI compress them into a
-                high-density, print-ready cheat sheet optimized for your exam.
+              <p className="text-neutral-600 mt-4 text-base font-medium max-w-2xl leading-relaxed">
+                Upload lecture PDFs, slides, or raw text. The engine compresses the input material into a high-density, strictly-formatted exam document.
               </p>
             </div>
 
             <div className="flex-shrink-0 w-full sm:w-auto">
               {isOutOfCredits ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <button
                     disabled
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-[var(--text-muted)] cursor-not-allowed"
+                    className="w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-neutral-300 border-2 border-neutral-400 text-neutral-500 font-bold uppercase tracking-widest cursor-not-allowed"
                   >
                     <Upload className="w-5 h-5" />
                     Upload & Generate
                   </button>
-                  <p className="flex items-center gap-1.5 text-xs text-red-400">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    0 Credits Remaining
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#e60000]">
+                    <AlertCircle className="w-4 h-4" />
+                    System Halt: 0 Credits
                   </p>
                 </div>
               ) : (
                 <button
                   onClick={() => setIsModalOpen(true)}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium text-sm hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 cursor-pointer"
+                  className="w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-[#e60000] text-white font-bold uppercase tracking-widest hover:bg-black transition-colors border-2 border-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 active:scale-95 duration-100"
                 >
                   <Upload className="w-5 h-5" />
-                  Upload & Generate
+                  Initiate Upload
                 </button>
               )}
             </div>
@@ -260,19 +244,19 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
 
         {/* Recent Sheets */}
         <div>
-          <h2 className="text-lg font-semibold mb-4">Recent Cheat Sheets</h2>
+          <h2 className="text-2xl font-black uppercase tracking-tight mb-8">Generated Assets</h2>
           {materials.length === 0 ? (
-            <div className="glass-card p-12 flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
-                <FileText className="w-8 h-8 text-[var(--text-muted)]" />
+            <div className="border-4 border-dashed border-neutral-300 p-16 flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 bg-neutral-200 flex items-center justify-center mb-6">
+                <FileText className="w-8 h-8 text-neutral-400" />
               </div>
-              <h3 className="font-medium text-[var(--text-secondary)]">No cheat sheets yet</h3>
-              <p className="text-sm text-[var(--text-muted)] mt-1 max-w-sm">
-                Upload your first set of lecture materials to generate an exam-ready cheat sheet.
+              <h3 className="font-black text-xl uppercase tracking-tight text-neutral-400">Database Empty</h3>
+              <p className="text-sm font-medium text-neutral-500 mt-2 max-w-sm uppercase tracking-widest">
+                Upload materials to populate records.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {materials.map((mat) => {
                 const itemCount = Array.isArray(mat.extracted_json)
                   ? mat.extracted_json.length
@@ -281,23 +265,23 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
                   <a
                     key={mat.id}
                     href={`/cheat-sheet/${mat.id}`}
-                    className="glass-card p-5 group hover:border-indigo-500/20 transition-all duration-300 cursor-pointer block"
+                    className="swiss-card p-6 group cursor-pointer block hover:bg-[#f4f4f5]"
                   >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <FileText className="w-5 h-5 text-indigo-400" />
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="w-12 h-12 bg-black flex items-center justify-center group-hover:bg-[#e60000] transition-colors">
+                        <FileText className="w-6 h-6 text-white" />
                       </div>
-                      <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-medium">
-                        {itemCount} items
+                      <span className="text-xs font-bold px-2 py-1 border-2 border-black uppercase tracking-tight">
+                        {itemCount} blocks
                       </span>
                     </div>
-                    <h3 className="font-medium text-sm truncate">{mat.course_name}</h3>
+                    <h3 className="font-black text-lg uppercase tracking-tight truncate leading-tight">{mat.course_name}</h3>
                     {mat.user_directive && (
-                      <p className="text-xs text-[var(--text-muted)] mt-1 line-clamp-2">
-                        &ldquo;{mat.user_directive}&rdquo;
+                      <p className="text-sm font-medium text-neutral-600 mt-2 line-clamp-2">
+                        {mat.user_directive}
                       </p>
                     )}
-                    <p className="text-xs text-[var(--text-muted)] mt-2">
+                    <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mt-6">
                       {new Date(mat.created_at).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",

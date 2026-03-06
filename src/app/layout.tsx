@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CheatSheetAI — Exam-Ready Cheat Sheets in Seconds",
+  title: "SoloSheet — Exam-Ready Cheat Sheets in Seconds",
   description:
     "Upload your lecture notes and let AI compress them into high-density, print-ready cheat sheets with perfect LaTeX math. Built for students.",
 };
@@ -24,9 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased bg-white text-black selection:bg-black selection:text-white`}
       >
         {children}
       </body>

@@ -20,60 +20,46 @@ function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--background)] p-4 relative overflow-hidden">
-      {/* Ambient background effects */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse-slow" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse-slow delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-3xl" />
-      </div>
-
-      {/* Grid background  */}
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px] pointer-events-none" />
-
-      <div className="glass-card w-full max-w-md p-8 text-center relative z-10 animate-fade-in">
+    <div className="min-h-screen flex items-center justify-center bg-white text-black p-4 selection:bg-black selection:text-white font-sans">
+      <div className="swiss-card w-full max-w-md p-8 text-center bg-white animate-slide-up">
         {/* Logo / Branding */}
-        <div className="mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-4 shadow-lg shadow-indigo-500/25">
+        <div className="mb-10">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-black mb-6">
             <BookOpen className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">
-            CheatSheet<span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">AI</span>
+          <h1 className="text-4xl font-black tracking-tighter uppercase mb-2">
+            Solo<span className="text-[#e60000]">Sheet</span>
           </h1>
-          <p className="text-[var(--text-secondary)] mt-2 text-sm">
-            Transform your notes into exam-ready cheat sheets
+          <p className="text-neutral-600 font-medium text-sm max-w-[250px] mx-auto uppercase tracking-wider">
+            Transform notes into exam-ready sheets
           </p>
         </div>
 
         {/* Feature pills */}
-        <div className="flex flex-wrap justify-center gap-2 mb-8">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[var(--text-secondary)]">
-            <Sparkles className="w-3 h-3 text-indigo-400" />
+        <div className="flex flex-wrap justify-center gap-3 mb-10">
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 border-2 border-black text-xs font-bold uppercase tracking-tight">
+            <Sparkles className="w-3.5 h-3.5 text-[#e60000]" />
             AI-Powered
           </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[var(--text-secondary)]">
-            <Zap className="w-3 h-3 text-amber-400" />
-            LaTeX Support
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[var(--text-secondary)]">
-            <BookOpen className="w-3 h-3 text-emerald-400" />
-            Print-Ready
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 border-2 border-black text-xs font-bold uppercase tracking-tight">
+            <Zap className="w-3.5 h-3.5 text-black" />
+            LaTeX Engine
           </span>
         </div>
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-            Authentication failed. Please try again.
+          <div className="mb-6 p-4 border-2 border-[#e60000] bg-red-50 text-[#e60000] text-sm font-bold uppercase tracking-tight text-left">
+            Error: Authentication failed. Please try again.
           </div>
         )}
 
         {/* Google Sign In Button */}
         <button
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl bg-white text-gray-800 font-medium text-sm hover:bg-gray-100 transition-all duration-200 hover:shadow-lg hover:shadow-white/10 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+          className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] border-2 border-transparent transition-colors cursor-pointer"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
@@ -94,8 +80,8 @@ function LoginContent() {
           Continue with Google
         </button>
 
-        <p className="mt-6 text-xs text-[var(--text-muted)]">
-          By signing in, you agree to our Terms of Service
+        <p className="mt-8 text-xs text-neutral-500 font-bold uppercase tracking-widest">
+          By signing in, you agree to our Terms
         </p>
       </div>
     </div>
@@ -105,8 +91,8 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
-        <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="animate-spin w-8 h-8 border-4 border-black border-t-transparent" />
       </div>
     }>
       <LoginContent />
