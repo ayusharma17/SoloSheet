@@ -172,22 +172,22 @@ export default function UploadModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto glass-card p-0 animate-fade-in">
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-0 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/5">
+        <div className="flex items-center justify-between p-6 border-b-[3px] border-black bg-black text-white">
           <div>
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-xl font-bold uppercase flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-[#e60000]" />
               Create Cheat Sheet
             </h2>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
+            <p className="text-sm text-neutral-400 mt-1 font-medium">
               Upload materials and let AI extract the essentials
             </p>
           </div>
           <button
             onClick={handleClose}
             disabled={isProcessing}
-            className="p-2 rounded-lg hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer"
+            className="p-2 border-2 border-transparent hover:border-white transition-colors disabled:opacity-50 cursor-pointer text-white"
           >
             <X className="w-5 h-5" />
           </button>
@@ -197,7 +197,7 @@ export default function UploadModal({
           <div className="flex gap-4">
             {/* Course Name */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+              <label className="block text-sm font-bold uppercase text-black mb-2">
                 Course Name
               </label>
               <input
@@ -206,32 +206,32 @@ export default function UploadModal({
                 onChange={(e) => setCourseName(e.target.value)}
                 placeholder='e.g. "CS 577 — Algorithms"'
                 disabled={isProcessing}
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all disabled:opacity-50"
+                className="w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-neutral-400 focus:outline-none focus:ring-0 focus:border-[#e60000] disabled:opacity-50 font-medium rounded-none"
               />
             </div>
 
             {/* Target Pages */}
             <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+              <label className="block text-sm font-bold uppercase text-black mb-2 flex items-center h-[20px]">
                 Target Pages
               </label>
-              <div className="flex items-center h-[50px] bg-white/5 border border-white/10 rounded-xl px-1">
+              <div className="flex items-center h-[52px] bg-white border-2 border-black max-w-[140px]">
                 <button
                   type="button"
                   onClick={() => adjustTargetPages(-1)}
                   disabled={targetPages <= 1 || isProcessing}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors text-[var(--text-secondary)]"
+                  className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 disabled:opacity-30 disabled:hover:bg-white transition-colors text-black border-r-2 border-black"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
-                <div className="w-16 text-center text-sm font-medium text-[var(--text-primary)]">
-                  {targetPages} {targetPages === 1 ? 'page' : 'pages'}
+                <div className="w-14 text-center text-sm font-bold text-black flex items-center justify-center">
+                  {targetPages} {targetPages === 1 ? 'PG' : 'PGS'}
                 </div>
                 <button
                   type="button"
                   onClick={() => adjustTargetPages(1)}
                   disabled={isProcessing}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors text-[var(--text-secondary)]"
+                  className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 transition-colors text-black border-l-2 border-black"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -241,7 +241,7 @@ export default function UploadModal({
 
           {/* Drop Zone */}
           <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+            <label className="block text-sm font-bold uppercase text-black mb-2">
               Course Materials
             </label>
             <div
@@ -249,10 +249,10 @@ export default function UploadModal({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => !isProcessing && fileInputRef.current?.click()}
-              className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
+              className={`relative border-[3px] border-dashed p-8 text-center transition-all cursor-pointer ${
                 isDragging
-                  ? "border-indigo-500 bg-indigo-500/5"
-                  : "border-white/10 hover:border-white/20 hover:bg-white/[0.02]"
+                  ? "border-[#e60000] bg-red-50"
+                  : "border-black hover:bg-neutral-50"
               } ${isProcessing ? "opacity-50 pointer-events-none" : ""}`}
             >
               <input
@@ -263,13 +263,13 @@ export default function UploadModal({
                 onChange={(e) => e.target.files && handleFiles(e.target.files)}
                 className="hidden"
               />
-              <Upload className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
-              <p className="text-sm text-[var(--text-secondary)]">
-                <span className="font-medium text-indigo-400">Click to upload</span> or
+              <Upload className="w-10 h-10 text-black mx-auto mb-3" />
+              <p className="text-sm font-bold uppercase text-black">
+                <span className="text-[#e60000] underline">Click to upload</span> or
                 drag and drop
               </p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                PDF, PNG, JPEG, WebP, GIF — up to 200MB total
+              <p className="text-xs font-medium text-neutral-500 mt-2 uppercase">
+                PDF, PNG, JPEG, WebP, GIF — max 200MB
               </p>
             </div>
           </div>
@@ -280,16 +280,16 @@ export default function UploadModal({
               {files.map(({ file, id }) => (
                 <div
                   key={id}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/5"
+                  className="flex items-center gap-3 px-4 py-3 bg-white border-2 border-black"
                 >
-                  <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                  <span className="text-sm text-[var(--text-secondary)] truncate flex-1">
+                  <FileText className="w-5 h-5 text-black flex-shrink-0" />
+                  <span className="text-sm font-bold text-black truncate flex-1">
                     {file.name}
                   </span>
-                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
+                  <span className="text-xs font-bold text-neutral-500 flex-shrink-0">
                     {formatSize(file.size)}
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-[var(--text-muted)] uppercase flex-shrink-0">
+                  <span className="text-[10px] font-bold px-2 py-0.5 border border-black text-black uppercase flex-shrink-0">
                     {file.name.split(".").pop()}
                   </span>
                   {!isProcessing && (
@@ -298,9 +298,9 @@ export default function UploadModal({
                         e.stopPropagation();
                         removeFile(id);
                       }}
-                      className="p-1 rounded hover:bg-white/10 text-[var(--text-muted)] hover:text-red-400 transition-colors cursor-pointer"
+                      className="p-1 border-2 border-transparent hover:border-black text-black hover:text-[#e60000] transition-colors cursor-pointer"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   )}
                 </div>
@@ -309,10 +309,10 @@ export default function UploadModal({
           )}
 
           {/* User Directive */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+          <div className="mt-6">
+            <label className="block text-sm font-bold uppercase text-black mb-2">
               Focus Directive{" "}
-              <span className="text-[var(--text-muted)] font-normal">(optional)</span>
+              <span className="text-neutral-500 font-medium normal-case">(optional)</span>
             </label>
             <textarea
               value={directive}
@@ -322,43 +322,43 @@ export default function UploadModal({
               placeholder='e.g. "Focus on Fourier Transforms and ignore the intro slides. Prioritize exam-style derivations."'
               rows={3}
               disabled={isProcessing}
-              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all resize-none disabled:opacity-50"
+              className="w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-neutral-400 focus:outline-none focus:ring-0 focus:border-[#e60000] transition-all resize-none disabled:opacity-50 font-medium rounded-none font-mono text-sm"
             />
-            <p className="text-xs text-[var(--text-muted)] text-right mt-1">
-              {directive.length}/{MAX_DIRECTIVE_LENGTH}
+            <p className="text-xs font-bold text-neutral-500 text-right mt-2 uppercase">
+              {directive.length} / {MAX_DIRECTIVE_LENGTH} CHARS
             </p>
           </div>
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-2 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-red-400">{error}</p>
+            <div className="flex items-start gap-3 p-4 bg-red-50 border-[3px] border-[#e60000]">
+              <AlertCircle className="w-5 h-5 text-[#e60000] mt-0.5 flex-shrink-0" />
+              <p className="text-sm font-bold text-[#e60000] uppercase mt-0.5">{error}</p>
             </div>
           )}
 
           {/* Success */}
           {success && (
-            <div className="flex items-center gap-2 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-              <CheckCircle className="w-5 h-5 text-emerald-400" />
-              <p className="text-sm text-emerald-400">
-                Extraction complete! Your cheat sheet data is ready.
+            <div className="flex items-start gap-3 p-4 bg-green-50 border-[3px] border-green-600">
+              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <p className="text-sm font-bold text-green-600 uppercase mt-0.5">
+                Extraction complete! Data is ready.
               </p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t border-white/5">
-          <p className="text-xs text-[var(--text-muted)]">
-            This will use <span className="text-indigo-400 font-medium">1 credit</span>{" "}
-            ({credits} remaining)
+        <div className="flex items-center justify-between p-6 border-t-[3px] border-black bg-neutral-50">
+          <p className="text-xs font-bold uppercase text-black">
+            Cost: <span className="text-[#e60000]">1 credit</span>{" "}
+            <span className="text-neutral-500">({credits} left)</span>
           </p>
 
           <button
             onClick={handleSubmit}
             disabled={isProcessing || files.length === 0 || !courseName.trim()}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium text-sm hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
           >
             {isProcessing ? (
               <>
@@ -368,7 +368,7 @@ export default function UploadModal({
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Extract & Generate
+                Generate
               </>
             )}
           </button>
