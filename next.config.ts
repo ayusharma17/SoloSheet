@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // No longer need bodySizeLimit - files are uploaded directly to Supabase Storage
 };
 
 export default nextConfig;

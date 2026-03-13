@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SoloSheet — Exam-Ready Cheat Sheets in Seconds",
+  title: "SoloSheet",
   description:
     "Upload your lecture notes and let AI compress them into high-density, print-ready cheat sheets with perfect LaTeX math. Built for students.",
 };

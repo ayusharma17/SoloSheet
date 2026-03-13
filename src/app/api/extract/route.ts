@@ -1,6 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { extractFromMaterials } from "@/lib/gemini";
 import { NextResponse } from "next/server";
+import {
+  downloadFileFromStorage,
+  isValidSupabaseStorageUrl,
+  cleanupUploadedFiles,
+} from "@/lib/supabase/storage-helpers";
+
+export const maxDuration = 300; // 5 minutes
+export const dynamic = "force-dynamic";
 
 // Admin emails bypass credit limits (comma-separated in env)
 const ADMIN_EMAILS = new Set(
@@ -73,53 +81,74 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Parse and Validate form data
-    const formData = await request.formData();
+    // 3. Parse JSON payload (now lightweight - just URLs, not base64)
+    let payload;
+    try {
+      payload = await request.json();
+    } catch (e: any) {
+      console.error("JSON PARSE ERROR:", e);
+      return NextResponse.json(
+        { error: "Failed to parse request body." },
+        { status: 400 }
+      );
+    }
     
     // Input Validation: Strings & Numbers
-    const rawCourseName = (formData.get("courseName") as string) || "Untitled Course";
+    const rawCourseName = payload.courseName || "Untitled Course";
     const courseName = rawCourseName.slice(0, 100).trim(); // Max 100 chars
     
-    const rawUserDirective = (formData.get("userDirective") as string) || "";
+    const rawUserDirective = payload.userDirective || "";
     const userDirective = rawUserDirective.slice(0, 1000).trim(); // Max 1000 chars
 
-    let targetPages = parseInt((formData.get("targetPages") as string) || "1", 10);
+    let targetPages = parseInt(payload.targetPages || "1", 10);
     // Clamp pages between 1 and 20 to prevent client-side DOS during rendering
     if (isNaN(targetPages)) targetPages = 1;
     targetPages = Math.max(1, Math.min(20, targetPages));
 
-    const fileEntries = formData.getAll("files") as File[];
+    const fileUrls = payload.fileUrls || [];
 
     // Input Validation: File Count
-    if (fileEntries.length === 0) {
+    if (fileUrls.length === 0) {
       return NextResponse.json(
         { error: "No files uploaded" },
         { status: 400 }
       );
     }
-    
-    if (fileEntries.length > 10) {
+
+    if (fileUrls.length > 10) {
       return NextResponse.json(
         { error: "Exceeded maximum of 10 files per extraction." },
         { status: 400 }
       );
     }
 
-    // 4. Validate files
+    // 4. Validate file URLs and sizes
     let totalSize = 0;
-    const files: { buffer: Buffer; mimeType: string; name: string }[] = [];
+    const filePaths: string[] = []; // Track for cleanup
 
-    for (const file of fileEntries) {
-      if (!ALLOWED_TYPES.has(file.type)) {
+    for (const fileEntry of fileUrls) {
+      // Validate URL is from Supabase Storage
+      if (!isValidSupabaseStorageUrl(fileEntry.url)) {
         return NextResponse.json(
           {
-            error: `Unsupported file type: ${file.type}. Allowed: PDF, PNG, JPEG, WebP, GIF`,
+            error: `Invalid file URL: ${fileEntry.name}. Files must be uploaded to Supabase Storage.`,
           },
           { status: 400 }
         );
       }
 
-      totalSize += file.size;
+      // Validate MIME type
+      if (!ALLOWED_TYPES.has(fileEntry.type)) {
+        return NextResponse.json(
+          {
+            error: `Unsupported file type: ${fileEntry.type}. Allowed: PDF, PNG, JPEG, WebP, GIF`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Validate total size BEFORE downloading
+      totalSize += fileEntry.size || 0;
       if (totalSize > MAX_TOTAL_SIZE) {
         return NextResponse.json(
           { error: "Total file size exceeds 200MB limit" },
@@ -127,15 +156,42 @@ export async function POST(request: Request) {
         );
       }
 
-      const arrayBuffer = await file.arrayBuffer();
-      files.push({
-        buffer: Buffer.from(arrayBuffer),
-        mimeType: file.type,
-        name: file.name,
-      });
+      // Track storage path for cleanup
+      if (fileEntry.path) {
+        filePaths.push(fileEntry.path);
+      }
     }
 
-    // 5. Call Gemini extraction
+    // 5. Download files from Supabase Storage
+    const files: { buffer: Buffer; mimeType: string; name: string }[] = [];
+
+    try {
+      for (const fileEntry of fileUrls) {
+        console.log(`[Extract API] Downloading ${fileEntry.name} from storage...`);
+        const { buffer } = await downloadFileFromStorage(
+          fileEntry.url,
+          "supabase.co" // Validate domain for security
+        );
+
+        files.push({
+          buffer,
+          mimeType: fileEntry.type,
+          name: fileEntry.name,
+        });
+      }
+    } catch (downloadError: unknown) {
+      const message =
+        downloadError instanceof Error
+          ? downloadError.message
+          : "Failed to download file from storage";
+      console.error("[Extract API] Download error:", downloadError);
+      return NextResponse.json(
+        { error: `Download failed: ${message}` },
+        { status: 500 }
+      );
+    }
+
+    // 6. Call Gemini extraction
     let items;
     try {
       items = await extractFromMaterials(files, userDirective);
@@ -147,6 +203,10 @@ export async function POST(request: Request) {
         message.includes("context") ||
         message.includes("too large")
       ) {
+        // Cleanup files on extraction failure
+        if (filePaths.length > 0) {
+          await cleanupUploadedFiles(supabase, filePaths);
+        }
         return NextResponse.json(
           {
             error:
@@ -155,13 +215,17 @@ export async function POST(request: Request) {
           { status: 413 }
         );
       }
+      // Cleanup files on extraction failure
+      if (filePaths.length > 0) {
+        await cleanupUploadedFiles(supabase, filePaths);
+      }
       return NextResponse.json(
         { error: `Extraction failed: ${message}` },
         { status: 500 }
       );
     }
 
-    // 6. Save to course_materials
+    // 7. Save to course_materials
     const { data: material, error: insertError } = await supabase
       .from("course_materials")
       .insert({
@@ -176,13 +240,17 @@ export async function POST(request: Request) {
 
     if (insertError) {
       console.error("Insert error:", insertError);
+      // Cleanup files on save failure
+      if (filePaths.length > 0) {
+        await cleanupUploadedFiles(supabase, filePaths);
+      }
       return NextResponse.json(
         { error: "Failed to save extraction results" },
         { status: 500 }
       );
     }
 
-    // 7. Decrement credits (skip for admins)
+    // 8. Decrement credits (skip for admins)
     if (!isAdmin) {
       const { error: creditError } = await supabase.rpc("decrement_credits", {
         user_id: user.id,
@@ -195,6 +263,12 @@ export async function POST(request: Request) {
           .update({ credits: (profile?.credits ?? 1) - 1 })
           .eq("id", user.id);
       }
+    }
+
+    // 9. Cleanup uploaded files after successful processing
+    if (filePaths.length > 0) {
+      await cleanupUploadedFiles(supabase, filePaths);
+      console.log(`[Extract API] Cleaned up ${filePaths.length} files from storage`);
     }
 
     return NextResponse.json({

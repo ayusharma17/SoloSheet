@@ -13,6 +13,12 @@ import {
   Minus,
   Plus,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import {
+  uploadCourseFile,
+  validateFileForUpload,
+  generateUploadSessionId,
+} from "@/lib/supabase/storage-helpers";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -24,6 +30,11 @@ interface UploadModalProps {
 interface UploadedFile {
   file: File;
   id: string;
+  uploadProgress: number;
+  uploadStatus: "pending" | "uploading" | "uploaded" | "failed";
+  storageUrl?: string;
+  storagePath?: string;
+  error?: string;
 }
 
 const ALLOWED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"];
@@ -46,16 +57,39 @@ export default function UploadModal({
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFiles = useCallback((newFiles: FileList | File[]) => {
+  const handleFiles = useCallback(async (newFiles: FileList | File[]) => {
     const validFiles: UploadedFile[] = [];
+    let validationError = "";
+
     for (const file of Array.from(newFiles)) {
       const ext = "." + file.name.split(".").pop()?.toLowerCase();
-      if (ALLOWED_EXTENSIONS.includes(ext)) {
-        validFiles.push({ file, id: crypto.randomUUID() });
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        validationError = `File "${file.name}" has unsupported extension. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}`;
+        continue;
+      }
+
+      // Validate file before adding
+      try {
+        validateFileForUpload(file);
+        validFiles.push({
+          file,
+          id: crypto.randomUUID(),
+          uploadProgress: 0,
+          uploadStatus: "pending",
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Validation failed";
+        validationError = message;
+        break;
       }
     }
-    setFiles((prev) => [...prev, ...validFiles]);
-    setError("");
+
+    if (validationError) {
+      setError(validationError);
+    } else {
+      setFiles((prev) => [...prev, ...validFiles]);
+      setError("");
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -103,22 +137,122 @@ export default function UploadModal({
 
     setIsProcessing(true);
     setError("");
-    setProcessingStatus("Uploading files...");
 
     try {
-      const formData = new FormData();
-      formData.append("courseName", courseName.trim());
-      formData.append("targetPages", targetPages.toString());
-      formData.append("userDirective", directive.trim());
-      for (const { file } of files) {
-        formData.append("files", file);
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error("You must be logged in to upload files.");
       }
 
+      const sessionId = generateUploadSessionId();
+
+      // Step 1: Upload files to Supabase Storage
+      setProcessingStatus("Uploading files to storage...");
+      const uploadedFiles: Array<{
+        url: string;
+        path: string;
+        name: string;
+        type: string;
+        size: number;
+      }> = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const fileEntry = files[i];
+
+        // Skip if already uploaded
+        if (fileEntry.uploadStatus === "uploaded" && fileEntry.storageUrl) {
+          uploadedFiles.push({
+            url: fileEntry.storageUrl,
+            path: fileEntry.storagePath!,
+            name: fileEntry.file.name,
+            type: fileEntry.file.type,
+            size: fileEntry.file.size,
+          });
+          continue;
+        }
+
+        // Update status to uploading
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileEntry.id
+              ? { ...f, uploadStatus: "uploading" as const }
+              : f
+          )
+        );
+
+        try {
+          setProcessingStatus(`Uploading ${fileEntry.file.name}...`);
+
+          const { url, path } = await uploadCourseFile(
+            supabase,
+            user.id,
+            sessionId,
+            fileEntry.file
+          );
+
+          // Update file status to uploaded
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileEntry.id
+                ? {
+                    ...f,
+                    uploadStatus: "uploaded" as const,
+                    uploadProgress: 100,
+                    storageUrl: url,
+                    storagePath: path,
+                  }
+                : f
+            )
+          );
+
+          uploadedFiles.push({
+            url,
+            path,
+            name: fileEntry.file.name,
+            type: fileEntry.file.type,
+            size: fileEntry.file.size,
+          });
+        } catch (uploadErr: unknown) {
+          const uploadMessage =
+            uploadErr instanceof Error
+              ? uploadErr.message
+              : "Upload failed";
+
+          // Mark file as failed
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileEntry.id
+                ? {
+                    ...f,
+                    uploadStatus: "failed" as const,
+                    error: uploadMessage,
+                  }
+                : f
+            )
+          );
+
+          throw new Error(`Failed to upload ${fileEntry.file.name}: ${uploadMessage}`);
+        }
+      }
+
+      // Step 2: Send extraction request with file URLs
       setProcessingStatus("Analyzing with Gemini AI...");
+
+      const payload = {
+        courseName: courseName.trim(),
+        targetPages,
+        userDirective: directive.trim(),
+        fileUrls: uploadedFiles,
+      };
 
       const res = await fetch("/api/extract", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -136,7 +270,8 @@ export default function UploadModal({
         resetState();
       }, 1500);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Something went wrong";
+      const message =
+        err instanceof Error ? err.message : "Something went wrong";
       setError(message);
       setIsProcessing(false);
       setProcessingStatus("");
@@ -277,26 +412,44 @@ export default function UploadModal({
           {/* File List */}
           {files.length > 0 && (
             <div className="space-y-2">
-              {files.map(({ file, id }) => (
+              {files.map((fileEntry) => (
                 <div
-                  key={id}
+                  key={fileEntry.id}
                   className="flex items-center gap-3 px-4 py-3 bg-white border-2 border-black"
                 >
                   <FileText className="w-5 h-5 text-black flex-shrink-0" />
-                  <span className="text-sm font-bold text-black truncate flex-1">
-                    {file.name}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-black truncate">
+                        {fileEntry.file.name}
+                      </span>
+                      {fileEntry.uploadStatus === "uploading" && (
+                        <Loader2 className="w-3 h-3 text-[#e60000] animate-spin flex-shrink-0" />
+                      )}
+                      {fileEntry.uploadStatus === "uploaded" && (
+                        <CheckCircle className="w-3 h-3 text-green-600 flex-shrink-0" />
+                      )}
+                      {fileEntry.uploadStatus === "failed" && (
+                        <AlertCircle className="w-3 h-3 text-[#e60000] flex-shrink-0" />
+                      )}
+                    </div>
+                    {fileEntry.error && (
+                      <p className="text-[10px] font-bold text-[#e60000] mt-1">
+                        {fileEntry.error}
+                      </p>
+                    )}
+                  </div>
                   <span className="text-xs font-bold text-neutral-500 flex-shrink-0">
-                    {formatSize(file.size)}
+                    {formatSize(fileEntry.file.size)}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 border border-black text-black uppercase flex-shrink-0">
-                    {file.name.split(".").pop()}
+                    {fileEntry.file.name.split(".").pop()}
                   </span>
                   {!isProcessing && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        removeFile(id);
+                        removeFile(fileEntry.id);
                       }}
                       className="p-1 border-2 border-transparent hover:border-black text-black hover:text-[#e60000] transition-colors cursor-pointer"
                     >
