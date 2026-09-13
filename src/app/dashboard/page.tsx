@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isAdminUser } from "@/lib/admin";
 import { redirect } from "next/navigation";
 import DashboardClient from "./dashboard-client";
 
@@ -36,6 +37,7 @@ export default async function DashboardPage() {
         avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
       }}
       credits={profile?.credits ?? 0}
+      isAdmin={isAdminUser(user)}
       materials={materials ?? []}
     />
   );

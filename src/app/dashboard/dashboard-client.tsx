@@ -32,10 +32,11 @@ interface DashboardClientProps {
     avatarUrl: string;
   };
   credits: number;
+  isAdmin: boolean;
   materials: CourseMaterial[];
 }
 
-export default function DashboardClient({ user, credits, materials }: DashboardClientProps) {
+export default function DashboardClient({ user, credits, isAdmin, materials }: DashboardClientProps) {
   const router = useRouter();
   const supabase = createClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,7 +52,7 @@ export default function DashboardClient({ user, credits, materials }: DashboardC
     router.refresh();
   };
 
-  const isOutOfCredits = credits <= 0;
+  const isOutOfCredits = !isAdmin && credits <= 0;
   const sheetsCreated = materials.length;
   const lastActivity = materials.length > 0
     ? new Date(materials[0].created_at).toLocaleDateString("en-US", {
