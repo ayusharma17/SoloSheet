@@ -1,5 +1,12 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
+export class UploadStorageError extends Error {
+  constructor(message: string, public readonly storagePath: string) {
+    super(message);
+    this.name = "UploadStorageError";
+  }
+}
+
 /**
  * Upload a file to Supabase Storage for course material processing
  *
@@ -15,9 +22,14 @@ export async function uploadCourseFile(
   sessionId: string,
   file: File
 ): Promise<{ url: string; path: string }> {
-  const filePath = `${userId}/${sessionId}/${file.name}`;
+  validateFileForUpload(file);
+  if (![userId, sessionId].every(part => /^[a-zA-Z0-9_-]+$/.test(part))) {
+    throw new Error("Invalid upload owner or session");
+  }
+  const extension = file.name.split(".").pop()!.toLowerCase();
+  const filePath = `${userId}/${sessionId}/${crypto.randomUUID()}.${extension}`;
 
-  const { data, error } = await supabase.storage
+  const { error } = await supabase.storage
     .from("course-materials")
     .upload(filePath, file, {
       cacheControl: "3600",
@@ -35,7 +47,12 @@ export async function uploadCourseFile(
     .createSignedUrl(filePath, 3600); // 1 hour expiry
 
   if (urlError || !urlData?.signedUrl) {
-    console.error("Signed URL error:", urlError);
+    try {
+      const { error: cleanupError } = await supabase.storage.from("course-materials").remove([filePath]);
+      if (cleanupError) throw new Error("Cleanup failed");
+    } catch {
+      throw new UploadStorageError(`Failed to generate URL for ${file.name}; uploaded file needs cleanup`, filePath);
+    }
     throw new Error(`Failed to generate URL for ${file.name}`);
   }
 
@@ -49,40 +66,49 @@ export async function uploadCourseFile(
  * Download a file from a signed URL as a Buffer
  *
  * @param url - Signed URL from Supabase Storage
- * @param expectedDomain - Expected domain for security validation
+ * @param expectedDomain - Full configured Supabase origin (defaults to environment)
+ * @param maxBytes - Actual streamed byte limit
  * @returns Buffer containing file data and response headers
  */
 export async function downloadFileFromStorage(
   url: string,
-  expectedDomain?: string
+  expectedDomain?: string,
+  maxBytes: number = 200 * 1024 * 1024
 ): Promise<{ buffer: Buffer; headers: Headers }> {
-  // Security: Validate URL is from expected domain (Supabase Storage)
-  if (expectedDomain) {
-    const urlObj = new URL(url);
-    if (!urlObj.hostname.includes(expectedDomain)) {
-      throw new Error(
-        `Security violation: URL must be from ${expectedDomain}, got ${urlObj.hostname}`
-      );
-    }
+  const configuredOrigin = expectedDomain ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!configuredOrigin || !isValidSupabaseStorageUrl(url, configuredOrigin)) {
+    throw new Error("Invalid configured storage URL");
   }
-
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error("Invalid download limit");
   const response = await fetch(url, {
     method: "GET",
-    // Add timeout to prevent hanging on large files
-    signal: AbortSignal.timeout(120000), // 2 minutes
+    redirect: "error",
+    signal: AbortSignal.timeout(120000),
   });
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download file: ${response.status} ${response.statusText}`
-    );
+  if (!response.ok || !response.body) throw new Error("Failed to download file from storage");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    const length = response.headers.get("content-length");
+    if (length && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
+      await reader.cancel();
+      throw new Error("Downloaded file exceeds size limit");
+    }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new Error("Downloaded file exceeds size limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
-
-  const arrayBuffer = await response.arrayBuffer();
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    headers: response.headers,
-  };
+  return { buffer: Buffer.concat(chunks, size), headers: response.headers };
 }
 
 /**
@@ -94,8 +120,15 @@ export async function downloadFileFromStorage(
 export async function cleanupUploadedFiles(
   supabase: SupabaseClient,
   filePaths: string[]
-): Promise<void> {
-  if (filePaths.length === 0) return;
+): Promise<boolean> {
+  if (filePaths.length === 0) return true;
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user || filePaths.some(path => {
+    const parts = path.split("/");
+    return parts.length !== 3 || parts[0] !== user.id || parts.some(part =>
+      !part || part === "." || part === ".." || /[\\%\u0000-\u001f\u007f]/.test(part)
+    );
+  })) return false;
 
   const { error } = await supabase.storage
     .from("course-materials")
@@ -103,9 +136,9 @@ export async function cleanupUploadedFiles(
 
   if (error) {
     console.warn("Failed to cleanup files:", error);
-    // Don't throw - cleanup is best-effort
+    return false;
   } else {
-    console.log(`Successfully cleaned up ${filePaths.length} file(s)`);
+    return true;
   }
 }
 
@@ -113,29 +146,37 @@ export async function cleanupUploadedFiles(
  * Check if a URL is a valid Supabase Storage signed URL
  *
  * @param url - URL to validate
- * @param projectRef - Your Supabase project reference (optional)
+ * @param storageOrigin - Full configured Supabase origin
  * @returns boolean indicating if URL is valid
  */
 export function isValidSupabaseStorageUrl(
   url: string,
-  projectRef?: string
+  storageOrigin: string = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
 ): boolean {
   try {
-    const urlObj = new URL(url);
-
-    // Check if it's a Supabase Storage URL
-    const isSupabaseStorage =
-      urlObj.hostname.includes("supabase.co") &&
-      urlObj.pathname.includes("/storage/v1/object/");
-
-    // Optionally validate project reference
-    if (projectRef) {
-      return isSupabaseStorage && urlObj.hostname.startsWith(projectRef);
-    }
-
-    return isSupabaseStorage;
+    const candidate = new URL(url);
+    const configured = new URL(storageOrigin);
+    return ["https:", "http:"].includes(configured.protocol) &&
+      candidate.origin === configured.origin && !candidate.username && !candidate.password &&
+      !candidate.hash && candidate.pathname.startsWith("/storage/v1/object/sign/course-materials/") &&
+      Boolean(candidate.searchParams.get("token"));
   } catch {
     return false;
+  }
+}
+
+/** Derive cleanup/download identity only from the authenticated user's signed URL. */
+export function ownedStoragePath(url: string, userId: string, storageOrigin: string): string | null {
+  if (!isValidSupabaseStorageUrl(url, storageOrigin)) return null;
+  try {
+    const encodedPath = new URL(url).pathname.slice("/storage/v1/object/sign/course-materials/".length);
+    const parts = encodedPath.split("/").map(decodeURIComponent);
+    if (parts.length !== 3 || parts[0] !== userId || parts.some(part =>
+      !part || part === "." || part === ".." || /[/\\%\u0000-\u001f\u007f]/.test(part)
+    )) return null;
+    return parts.join("/");
+  } catch {
+    return null;
   }
 }
 
@@ -168,6 +209,7 @@ export function validateFileForUpload(
   ]
 ): void {
   // Check file size
+  if (file.size <= 0) throw new Error(`File "${file.name}" is empty.`);
   if (file.size > maxSize) {
     const sizeMB = (maxSize / (1024 * 1024)).toFixed(0);
     throw new Error(
