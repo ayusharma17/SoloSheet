@@ -22,7 +22,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE r public.extraction_requests%ROWTYPE; balance integer; expired_count integer;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501'; END IF;
-  IF p_user_id IS NULL OR p_request_id IS NULL OR length(p_fingerprint) <> 64 THEN RAISE EXCEPTION 'Invalid request'; END IF;
+  IF p_user_id IS NULL OR p_request_id IS NULL OR p_fingerprint IS NULL OR p_fingerprint !~ '^[0-9a-fA-F]{64}$' THEN RAISE EXCEPTION 'Invalid request'; END IF;
   -- All operations take the same profile lock first, serializing a user's balance.
   SELECT credits INTO balance FROM public.profiles WHERE id = p_user_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('status', 'no_credits'); END IF;
@@ -62,7 +62,7 @@ BEGIN
   IF r.status = 'completed' THEN
     RETURN jsonb_build_object('materialId', r.material_id, 'remainingCredits', balance);
   END IF;
-  IF p_target_pages NOT BETWEEN 1 AND 20 OR jsonb_typeof(p_items) <> 'array' THEN RAISE EXCEPTION 'Invalid extraction'; END IF;
+  IF p_target_pages IS NULL OR p_target_pages NOT BETWEEN 1 AND 20 OR p_items IS NULL OR jsonb_typeof(p_items) <> 'array' THEN RAISE EXCEPTION 'Invalid extraction'; END IF;
   INSERT INTO public.course_materials(user_id, course_name, target_pages, user_directive, extracted_json)
   VALUES (p_user_id, p_course_name, p_target_pages, p_user_directive, p_items) RETURNING id INTO result_id;
   UPDATE public.extraction_requests SET status = 'completed', material_id = result_id WHERE user_id = p_user_id AND request_id = p_request_id;
@@ -89,5 +89,6 @@ BEGIN
 END; $$;
 
 REVOKE ALL ON FUNCTION public.reserve_extraction(uuid, uuid, text, boolean), public.complete_extraction(uuid, uuid, text, integer, text, jsonb), public.fail_extraction(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE INSERT (user_id, course_name, target_pages, user_directive, extracted_json), UPDATE ON public.course_materials FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reserve_extraction(uuid, uuid, text, boolean), public.complete_extraction(uuid, uuid, text, integer, text, jsonb), public.fail_extraction(uuid, uuid) TO service_role;
 COMMIT;
