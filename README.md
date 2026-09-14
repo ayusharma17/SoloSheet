@@ -22,7 +22,14 @@ SUPABASE_SERVICE_ROLE_KEY=<value from SERVICE_ROLE_KEY>
 NEXT_PUBLIC_ENABLE_TEST_AUTH=true
 ```
 
-Apply the SQL files in the order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md).
+Start the local app:
+
+```sh
+npm run dev -- --hostname 127.0.0.1
+```
+
+Restart Next.js whenever `.env.local` changes. Apply the SQL files once, in the
+order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md); repeat this only after resetting the database or creating a new Supabase project.
 
 Run automated checks:
 
