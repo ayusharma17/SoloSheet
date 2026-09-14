@@ -11,12 +11,14 @@ npx supabase start
 supabase status -o env
 ```
 
-Put the local values in `.env.local` using these names:
+Run `supabase status -o env` and copy the values from its output into `.env.local`.
+Use `API_URL` for the URL, `ANON_KEY` for the anon key, and `SERVICE_ROLE_KEY`
+for the service-role key:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<local anon key>
-SUPABASE_SERVICE_ROLE_KEY=<local service role key>
+NEXT_PUBLIC_SUPABASE_URL=<value from API_URL>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<value from ANON_KEY>
+SUPABASE_SERVICE_ROLE_KEY=<value from SERVICE_ROLE_KEY>
 NEXT_PUBLIC_ENABLE_TEST_AUTH=true
 ```
 
