@@ -1,14 +1,21 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useState } from "react";
 import { Suspense } from "react";
 import { BookOpen, Sparkles, Zap } from "lucide-react";
 
 function LoginContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const error = searchParams.get("error");
   const supabase = createClient();
+  const testAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_TEST_AUTH === "true";
+  const [testEmail, setTestEmail] = useState("");
+  const [testPassword, setTestPassword] = useState("");
+  const [testError, setTestError] = useState("");
+  const [testLoading, setTestLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
@@ -17,6 +24,23 @@ function LoginContent() {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+  };
+
+  const handleTestLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTestLoading(true);
+    setTestError("");
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: testEmail.trim(),
+      password: testPassword,
+    });
+    if (signInError) {
+      setTestError("Test sign-in failed. Check the local test account.");
+      setTestLoading(false);
+      return;
+    }
+    router.replace("/dashboard");
+    router.refresh();
   };
 
   return (
@@ -79,6 +103,20 @@ function LoginContent() {
           </svg>
           Continue with Google
         </button>
+
+        {testAuthEnabled && (
+          <form onSubmit={handleTestLogin} className="mt-8 border-t-2 border-neutral-200 pt-6 text-left">
+            <p className="mb-4 text-xs font-bold uppercase tracking-widest text-neutral-500">Local test account</p>
+            <label className="block text-xs font-bold uppercase tracking-widest mb-2" htmlFor="test-email">Email</label>
+            <input id="test-email" type="email" required value={testEmail} onChange={(event) => setTestEmail(event.target.value)} className="w-full border-2 border-black px-3 py-2 mb-3" autoComplete="username" />
+            <label className="block text-xs font-bold uppercase tracking-widest mb-2" htmlFor="test-password">Password</label>
+            <input id="test-password" type="password" required value={testPassword} onChange={(event) => setTestPassword(event.target.value)} className="w-full border-2 border-black px-3 py-2 mb-3" autoComplete="current-password" />
+            {testError && <p className="mb-3 text-xs font-bold text-[#e60000]">{testError}</p>}
+            <button type="submit" disabled={testLoading} className="w-full border-2 border-black px-4 py-3 font-bold uppercase tracking-widest disabled:opacity-50">
+              {testLoading ? "Signing in…" : "Sign in to local test account"}
+            </button>
+          </form>
+        )}
 
         <p className="mt-8 text-xs text-neutral-500 font-bold uppercase tracking-widest">
           By signing in, you agree to our Terms

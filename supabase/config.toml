@@ -1,0 +1,11 @@
+# Local-only Supabase configuration. Production settings remain in the hosted project.
+project_id = "solosheet-local"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
