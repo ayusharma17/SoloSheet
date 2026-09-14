@@ -84,7 +84,7 @@ function LoginContent() {
         )}
 
         {/* Google Sign In Button */}
-        <button
+        {!isLocalSupabase && <button
           onClick={handleGoogleLogin}
           className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] border-2 border-transparent transition-colors cursor-pointer"
         >
@@ -107,7 +107,7 @@ function LoginContent() {
             />
           </svg>
           Continue with Google
-        </button>
+        </button>}
 
         {testAuthEnabled && (
           <form onSubmit={handleTestLogin} className="mt-8 border-t-2 border-neutral-200 pt-6 text-left">
@@ -121,6 +121,12 @@ function LoginContent() {
               {testLoading ? "Signing in…" : "Sign in to local test account"}
             </button>
           </form>
+        )}
+
+        {isLocalSupabase && !testAuthEnabled && (
+          <p className="mt-6 text-xs font-bold uppercase tracking-widest text-[#e60000]">
+            Enable NEXT_PUBLIC_ENABLE_TEST_AUTH for local sign-in.
+          </p>
         )}
 
         <p className="mt-8 text-xs text-neutral-500 font-bold uppercase tracking-widest">

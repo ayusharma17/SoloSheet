@@ -32,9 +32,10 @@ Restart Next.js whenever `.env.local` changes. Apply the SQL files once, in the
 order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md); repeat this only after resetting the database or creating a new Supabase project.
 
 `npx supabase start` runs the local backend services (Auth, Postgres, Storage, and
-REST). `npm run dev` runs only the Next.js frontend/API; full local integration
-testing requires both commands. The automated checks below can run without either
-service.
+REST). `npm run dev` runs only the Next.js frontend/API. Full local integration
+testing requires both commands. With local Supabase, Google OAuth is not enabled;
+the login page uses the development test account. With hosted Supabase, use the
+normal Google login. The automated checks below can run without either service.
 
 Run automated checks:
 
