@@ -11,7 +11,12 @@ function LoginContent() {
   const router = useRouter();
   const error = searchParams.get("error");
   const supabase = createClient();
-  const testAuthEnabled = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_ENABLE_TEST_AUTH === "true";
+  const supabaseHost = (() => {
+    try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname; }
+    catch { return ""; }
+  })();
+  const isLocalSupabase = supabaseHost === "localhost" || supabaseHost === "127.0.0.1" || supabaseHost === "::1";
+  const testAuthEnabled = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_ENABLE_TEST_AUTH === "true" && isLocalSupabase;
   const [testEmail, setTestEmail] = useState("");
   const [testPassword, setTestPassword] = useState("");
   const [testError, setTestError] = useState("");
