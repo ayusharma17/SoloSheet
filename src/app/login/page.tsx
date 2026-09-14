@@ -11,7 +11,7 @@ function LoginContent() {
   const router = useRouter();
   const error = searchParams.get("error");
   const supabase = createClient();
-  const testAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_TEST_AUTH === "true";
+  const testAuthEnabled = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_ENABLE_TEST_AUTH === "true";
   const [testEmail, setTestEmail] = useState("");
   const [testPassword, setTestPassword] = useState("");
   const [testError, setTestError] = useState("");
