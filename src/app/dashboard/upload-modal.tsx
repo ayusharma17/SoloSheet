@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   X,
   Upload,
@@ -18,7 +18,11 @@ import {
   uploadCourseFile,
   validateFileForUpload,
   generateUploadSessionId,
+  cleanupUploadedFiles,
+  UploadStorageError,
 } from "@/lib/supabase/storage-helpers";
+
+import { UploadCleanupJournal, retryDisposition, type ExtractionPayload } from "@/lib/upload-lifecycle";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -56,8 +60,51 @@ export default function UploadModal({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const busy = useRef(false);
+  const attempt = useRef<ExtractionPayload | null>(null);
+  const tracked = useRef(new Set<string>());
+  const owner = useRef<string | null>(null);
+  const journal = useRef<UploadCleanupJournal | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
+  const locked = isProcessing || retryPending;
+  const flushCleanup = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await journal.current?.flush(user.id, paths => cleanupUploadedFiles(supabase, paths));
+  }, []);
+  const abandon = useCallback(() => {
+    // Unknown outcomes may still be processing. Retain their inputs for 24 hours.
+    for (const path of tracked.current) journal.current?.track(path, attempt.current !== null);
+    tracked.current.clear();
+    void flushCleanup();
+  }, [flushCleanup]);
+  const discardTrackedUploads = useCallback(async () => {
+    const paths = [...tracked.current];
+    if (!paths.length) return;
+    // Uploading has not started extraction yet, so these paths are safe to remove
+    // immediately. The journal remains as a retry queue if the removal fails.
+    for (const path of paths) journal.current?.track(path, false);
+    tracked.current.clear();
+    await flushCleanup();
+    setFiles(prev => prev.map(entry => paths.includes(entry.storagePath ?? "") ? {
+      ...entry,
+      uploadStatus: "pending" as const,
+      uploadProgress: 0,
+      storageUrl: undefined,
+      storagePath: undefined,
+      error: undefined,
+    } : entry));
+  }, [flushCleanup]);
+  useEffect(() => {
+    try { journal.current = new UploadCleanupJournal(window.localStorage); } catch { /* private browsing */ }
+    void flushCleanup();
+    window.addEventListener("online", flushCleanup);
+    return () => { window.removeEventListener("online", flushCleanup); abandon(); };
+  }, [abandon, flushCleanup]);
+
 
   const handleFiles = useCallback(async (newFiles: FileList | File[]) => {
+    if (busy.current || attempt.current) return;
     const validFiles: UploadedFile[] = [];
     let validationError = "";
 
@@ -87,10 +134,14 @@ export default function UploadModal({
     if (validationError) {
       setError(validationError);
     } else {
+      if (files.length + validFiles.length > 10 || [...files, ...validFiles].reduce((sum, entry) => sum + entry.file.size, 0) > 200 * 1024 * 1024) {
+        setError("Choose at most 10 files totaling no more than 200MB.");
+        return;
+      }
       setFiles((prev) => [...prev, ...validFiles]);
       setError("");
     }
-  }, []);
+  }, [files]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -112,6 +163,9 @@ export default function UploadModal({
   }, []);
 
   const removeFile = (id: string) => {
+    if (busy.current || attempt.current) return;
+    const path = files.find(f => f.id === id)?.storagePath;
+    if (path) { journal.current?.track(path, false); tracked.current.delete(path); void flushCleanup(); }
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
@@ -122,10 +176,11 @@ export default function UploadModal({
   };
 
   const adjustTargetPages = (change: number) => {
-    setTargetPages((prev) => Math.max(1, prev + change));
+    setTargetPages((prev) => Math.min(20, Math.max(1, prev + change)));
   };
 
   const handleSubmit = async () => {
+    if (busy.current) return;
     if (files.length === 0) {
       setError("Please upload at least one file.");
       return;
@@ -135,6 +190,7 @@ export default function UploadModal({
       return;
     }
 
+    busy.current = true;
     setIsProcessing(true);
     setError("");
 
@@ -148,6 +204,8 @@ export default function UploadModal({
         throw new Error("You must be logged in to upload files.");
       }
 
+      if (owner.current && owner.current !== user.id) throw new Error("Your account changed. Close this dialog and start again.");
+      owner.current = user.id;
       const sessionId = generateUploadSessionId();
 
       // Step 1: Upload files to Supabase Storage
@@ -160,13 +218,15 @@ export default function UploadModal({
         size: number;
       }> = [];
 
-      for (let i = 0; i < files.length; i++) {
+      for (let i = 0; !attempt.current && i < files.length; i++) {
         const fileEntry = files[i];
 
         // Skip if already uploaded
         if (fileEntry.uploadStatus === "uploaded" && fileEntry.storageUrl) {
+          const { data, error: signError } = await supabase.storage.from("course-materials").createSignedUrl(fileEntry.storagePath!, 3600);
+          if (signError || !data?.signedUrl) throw new Error("Unable to refresh upload URL. Retry or remove the file.");
           uploadedFiles.push({
-            url: fileEntry.storageUrl,
+            url: data.signedUrl,
             path: fileEntry.storagePath!,
             name: fileEntry.file.name,
             type: fileEntry.file.type,
@@ -194,6 +254,8 @@ export default function UploadModal({
             fileEntry.file
           );
 
+          tracked.current.add(path);
+          journal.current?.track(path);
           // Update file status to uploaded
           setFiles((prev) =>
             prev.map((f) =>
@@ -217,6 +279,10 @@ export default function UploadModal({
             size: fileEntry.file.size,
           });
         } catch (uploadErr: unknown) {
+          if (uploadErr instanceof UploadStorageError) {
+            journal.current?.track(uploadErr.storagePath, false);
+            void flushCleanup();
+          }
           const uploadMessage =
             uploadErr instanceof Error
               ? uploadErr.message
@@ -235,6 +301,10 @@ export default function UploadModal({
             )
           );
 
+          // A later file cannot be submitted without the complete batch. Remove
+          // paths already created in this attempt so retry uploads fresh objects.
+          await discardTrackedUploads();
+
           throw new Error(`Failed to upload ${fileEntry.file.name}: ${uploadMessage}`);
         }
       }
@@ -242,25 +312,36 @@ export default function UploadModal({
       // Step 2: Send extraction request with file URLs
       setProcessingStatus("Analyzing with Gemini AI...");
 
-      const payload = {
+      const payload = attempt.current ?? {
+        requestId: crypto.randomUUID(),
         courseName: courseName.trim(),
         targetPages,
         userDirective: directive.trim(),
         fileUrls: uploadedFiles,
       };
 
+      attempt.current = payload;
+      setRetryPending(true);
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const data: unknown = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Extraction failed");
+        if (retryDisposition(res.status, data) === "restart") {
+          attempt.current = null;
+          setRetryPending(false);
+        }
+        const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string" ? data.error : "Extraction failed";
+        throw new Error(message);
       }
 
+      attempt.current = null;
+      setRetryPending(false);
+      abandon();
       setProcessingStatus("Done!");
       setSuccess(true);
 
@@ -272,13 +353,19 @@ export default function UploadModal({
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
-      setError(message);
+      setError(attempt.current ? `${message}. Retry to check the same request; your credit will not be charged twice.` : message);
       setIsProcessing(false);
       setProcessingStatus("");
+    } finally {
+      busy.current = false;
     }
   };
 
   const resetState = () => {
+    abandon();
+    attempt.current = null;
+    owner.current = null;
+    setRetryPending(false);
     setFiles([]);
     setCourseName("");
     setTargetPages(1);
@@ -340,7 +427,7 @@ export default function UploadModal({
                 value={courseName}
                 onChange={(e) => setCourseName(e.target.value)}
                 placeholder='e.g. "CS 577 — Algorithms"'
-                disabled={isProcessing}
+                disabled={locked}
                 className="w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-neutral-400 focus:outline-none focus:ring-0 focus:border-[#e60000] disabled:opacity-50 font-medium rounded-none"
               />
             </div>
@@ -354,7 +441,7 @@ export default function UploadModal({
                 <button
                   type="button"
                   onClick={() => adjustTargetPages(-1)}
-                  disabled={targetPages <= 1 || isProcessing}
+                  disabled={targetPages <= 1 || locked}
                   className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 disabled:opacity-30 disabled:hover:bg-white transition-colors text-black border-r-2 border-black"
                 >
                   <Minus className="w-4 h-4" />
@@ -365,7 +452,7 @@ export default function UploadModal({
                 <button
                   type="button"
                   onClick={() => adjustTargetPages(1)}
-                  disabled={isProcessing}
+                  disabled={locked || targetPages >= 20}
                   className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 transition-colors text-black border-l-2 border-black"
                 >
                   <Plus className="w-4 h-4" />
@@ -383,12 +470,12 @@ export default function UploadModal({
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
-              onClick={() => !isProcessing && fileInputRef.current?.click()}
+              onClick={() => !locked && fileInputRef.current?.click()}
               className={`relative border-[3px] border-dashed p-8 text-center transition-all cursor-pointer ${
                 isDragging
                   ? "border-[#e60000] bg-red-50"
                   : "border-black hover:bg-neutral-50"
-              } ${isProcessing ? "opacity-50 pointer-events-none" : ""}`}
+              } ${locked ? "opacity-50 pointer-events-none" : ""}`}
             >
               <input
                 ref={fileInputRef}
@@ -404,7 +491,7 @@ export default function UploadModal({
                 drag and drop
               </p>
               <p className="text-xs font-medium text-neutral-500 mt-2 uppercase">
-                PDF, PNG, JPEG, WebP, GIF — max 200MB
+                PDF, PNG, JPEG, WebP, GIF — 10 files, 200MB total
               </p>
             </div>
           </div>
@@ -445,7 +532,7 @@ export default function UploadModal({
                   <span className="text-[10px] font-bold px-2 py-0.5 border border-black text-black uppercase flex-shrink-0">
                     {fileEntry.file.name.split(".").pop()}
                   </span>
-                  {!isProcessing && (
+                  {!locked && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -474,7 +561,7 @@ export default function UploadModal({
               }
               placeholder='e.g. "Focus on Fourier Transforms and ignore the intro slides. Prioritize exam-style derivations."'
               rows={3}
-              disabled={isProcessing}
+              disabled={locked}
               className="w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-neutral-400 focus:outline-none focus:ring-0 focus:border-[#e60000] transition-all resize-none disabled:opacity-50 font-medium rounded-none font-mono text-sm"
             />
             <p className="text-xs font-bold text-neutral-500 text-right mt-2 uppercase">
@@ -521,7 +608,7 @@ export default function UploadModal({
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Generate
+                {retryPending ? "Retry request" : "Generate"}
               </>
             )}
           </button>
