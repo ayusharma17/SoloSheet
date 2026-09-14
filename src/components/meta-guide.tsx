@@ -8,21 +8,23 @@ export default function MetaGuide({
   courseName,
   directive,
   droppedCount,
+  compact = false,
 }: {
   courseName: string;
   directive: string | null;
   droppedCount: number;
+  compact?: boolean;
 }) {
   return (
     <div
-      className="meta-guide bg-white text-black print:shadow-none"
+      className={`meta-guide bg-white text-black ${compact ? "meta-guide-compact" : ""}`}
       style={{
-        width: "8.5in",
-        minHeight: "11in",
-        padding: "0.5in 0.6in",
+        width: compact ? "100%" : "8.5in",
+        minHeight: compact ? undefined : "11in",
+        padding: compact ? "4px" : "0.5in 0.6in",
         boxSizing: "border-box",
         fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
-        fontSize: "10px",
+        fontSize: compact ? "inherit" : "10px",
         lineHeight: 1.5,
       }}
     >
@@ -60,7 +62,7 @@ export default function MetaGuide({
           style={{
             ...cardStyle,
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: compact ? "1fr" : "repeat(3, 1fr)",
             gap: "6px 16px",
           }}
         >

@@ -115,20 +115,12 @@ body {
     display: none !important;
   }
 
-  /* Sheet pages get their own page break */
-  .sheet-page {
-    page-break-after: always;
+  .physical-page {
+    break-inside: avoid;
     break-after: page;
     box-shadow: none !important;
-    border: none !important;
   }
-
-  .meta-guide {
-    page-break-before: always;
-    break-before: page;
-    box-shadow: none !important;
-  }
-
+  .physical-page:last-child { break-after: auto; }
   /* KaTeX should print in pure black */
   .katex {
     color: black !important;
@@ -138,21 +130,22 @@ body {
 /* ──────────────────────────────────────────
    Sheet Page — On-Screen Preview
    ────────────────────────────────────────── */
-.sheet-page,
-.meta-guide {
-  box-shadow: 8px 8px 0px 0px rgba(0,0,0,0.1);
-  border: 2px solid var(--border);
-  margin-bottom: 32px;
+.physical-page {
+  width: 8.5in;
+  height: 11in;
+  box-sizing: border-box;
+  overflow: hidden;
   background: white;
+  box-shadow: 8px 8px 0 rgba(0,0,0,0.1);
 }
-
-/* Ensure LaTeX content doesn't overflow columns */
+.sheet-page, .meta-guide { background: white; }
 .content-renderer .katex-display {
   margin: 2px 0 !important;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
 }
-
-.content-renderer .katex {
-  font-size: inherit !important;
-}
+.content-renderer .katex { font-size: inherit !important; }
+.meta-guide { overflow-wrap: anywhere; }
+.meta-guide-compact h2 { font-size: 12px !important; }
+.meta-guide-compact h3 { font-size: 10px !important; }
+.meta-guide-compact section { margin-bottom: 8px !important; }
+.meta-guide-compact > div:first-child { margin-bottom: 8px !important; }

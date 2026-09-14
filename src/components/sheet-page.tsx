@@ -1,6 +1,7 @@
 "use client";
 
-import ContentRenderer from "./content-renderer";
+import ContentRenderer from "@/components/content-renderer";
+import type { ReactNode } from "react";
 
 type ExtractionItem = {
   priority: number;
@@ -26,12 +27,14 @@ export default function SheetPage({
   items,
   params,
   courseName,
-  unboundedHeight = false,
+  columnItems,
+  guide,
 }: {
   items: ExtractionItem[];
   params: LayoutParams;
   courseName: string;
-  unboundedHeight?: boolean;
+  columnItems?: number[][];
+  guide?: ReactNode;
 }) {
   const fontSizePx = params.fontSizePt * (96 / 72); // pt → px conversion
   const lineHeight = 1.2;
@@ -41,17 +44,16 @@ export default function SheetPage({
       className="sheet-page bg-white text-black print:shadow-none relative"
       style={{
         width: "8.5in",
-        height: unboundedHeight ? "auto" : "11in",
+        height: "11in",
         minHeight: "11in",
         padding: "0.15in 0.2in",
         boxSizing: "border-box",
-        columnCount: params.columns,
-        columnGap: "0.15in",
-        columnRule: "0.5px solid #e0e0e0",
+        display: "flex",
+        flexDirection: "column",
         fontSize: `${fontSizePx}px`,
         lineHeight: lineHeight,
         fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
-        overflow: "visible", // Critical for horizontal pagination
+        overflow: "hidden",
       }}
     >
       {/* Tiny header at the top of the sheet */}
@@ -72,7 +74,12 @@ export default function SheetPage({
         {courseName.toUpperCase()} — CHEAT SHEET
       </div>
 
-      {items.map((item, idx) => {
+      <div className="sheet-columns" style={{ display: "grid", gridTemplateColumns: `repeat(${params.columns}, minmax(0, 1fr))`, gap: "0.15in", flex: 1, minHeight: 0 }}>
+      {(columnItems ?? [items.map((_, index) => index).concat(guide ? [items.length] : [])]).map((indices, columnIndex) => (
+        <div className="sheet-column" key={columnIndex} style={{ minWidth: 0 }}>
+      {indices.map((idx) => {
+        if (idx === items.length) return <div className="sheet-item" data-item-index={idx} key="guide">{guide}</div>;
+        const item = items[idx];
         // Use shorthand for lower-priority items when the flag is set
         const useShorthand =
           params.useShorthandForLowPriority &&
@@ -85,7 +92,10 @@ export default function SheetPage({
         return (
           <div
             key={idx}
+            className="sheet-item"
+            data-item-index={idx}
             style={{
+              overflowWrap: "anywhere",
               breakInside: "avoid" as const,
               pageBreakInside: "avoid" as const,
               marginBottom: "3px",
@@ -131,6 +141,9 @@ export default function SheetPage({
           </div>
         );
       })}
+        </div>
+      ))}
+      </div>
     </div>
   );
 }

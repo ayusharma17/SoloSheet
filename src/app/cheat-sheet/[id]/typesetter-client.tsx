@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import "katex/dist/katex.min.css";
+import { paginateBlocks } from "@/lib/typesetting/paginate";
 import MetaGuide from "@/components/meta-guide";
 import SheetPage from "@/components/sheet-page";
 import { Download, RefreshCw, ArrowLeft, Minus, Plus, BookOpen } from "lucide-react";
@@ -41,6 +42,10 @@ const INITIAL_PARAMS: LayoutParams = {
 export default function TypesetterClient({ material }: { material: Material }) {
   const [targetPages, setTargetPages] = useState<number>(material.target_pages || 1);
   const [includeGuide, setIncludeGuide] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
+  const [pages, setPages] = useState<number[][][]>([]);
+  const [overflow, setOverflow] = useState(false);
+  const guideMeasureRef = useRef<HTMLDivElement>(null);
   const [isSqueezing, setIsSqueezing] = useState(true);
   const [layoutParams, setLayoutParams] = useState<LayoutParams>({ ...INITIAL_PARAMS });
   const [squeezeIteration, setSqueezeIteration] = useState(0);
@@ -76,35 +81,40 @@ export default function TypesetterClient({ material }: { material: Material }) {
   useEffect(() => {
     if (!isSqueezing) return;
 
-    const rafId = requestAnimationFrame(() => {
-      const container = measureRef.current;
-      if (!container) {
-        setIsSqueezing(false);
-        return;
-      }
-
-      // 8.5in × 11in at 96 DPI = 816px × 1056px. Gap is 0.15in = 14.4px.
-      // A full page step in the horizontal column layout is exactly (816 + 14.4)px = 830.4px.
-      const stepWidth = 8.5 * 96 + 0.15 * 96; 
-      // Allowed width for `targetPages` is `targetPages * stepWidth` (minus one gap, but we over-estimate slightly to be safe)
-      const targetWidth = Math.ceil(targetPages * stepWidth);
-      const currentWidth = container.scrollWidth;
-
-      if (currentWidth > targetWidth) {
-        const next = squeezeOneStep(layoutParams);
-        if (next) {
-          setLayoutParams(next);
-          setSqueezeIteration((i) => i + 1);
-        } else {
-          setIsSqueezing(false); // can't squeeze more
+    let cancelled = false;
+    let rafId = 0;
+    // KaTeX and text font loads can change every block's measured dimensions.
+    document.fonts.ready.then(() => {
+      if (cancelled) return;
+      rafId = requestAnimationFrame(() => {
+        const container = measureRef.current;
+        const columns = container?.querySelector<HTMLElement>(".sheet-columns");
+        if (!container || !columns) return;
+        const blocks = Array.from(container.querySelectorAll<HTMLElement>(".sheet-item"));
+        const heights = blocks.map((block) => block.getBoundingClientRect().height + parseFloat(getComputedStyle(block).marginBottom || "0"));
+        const result = paginateBlocks(heights, columns.getBoundingClientRect().height, layoutParams.columns);
+        const wide = blocks.some((block) => block.scrollWidth > block.clientWidth + 1 ||
+          Array.from(block.querySelectorAll<HTMLElement>(".katex-html")).some((math) => math.getBoundingClientRect().width > block.clientWidth + 1));
+        const guide = guideMeasureRef.current;
+        const guideContent = guide?.querySelector<HTMLElement>(".meta-guide");
+        const guideOverflow = showGuide && !includeGuide && !!guideContent &&
+          (guideContent.scrollHeight > guideContent.clientHeight + 1 || guideContent.scrollWidth > guideContent.clientWidth + 1);
+        const exceeds = result.oversized || wide || result.pages.length > targetPages || guideOverflow;
+        if (exceeds) {
+          const next = squeezeOneStep(layoutParams);
+          if (next) {
+            setLayoutParams(next);
+            setSqueezeIteration((i) => i + 1);
+            return;
+          }
         }
-      } else {
-        setIsSqueezing(false); // fits!
-      }
+        setPages(result.pages);
+        setOverflow(exceeds);
+        setIsSqueezing(false);
+      });
     });
-
-    return () => cancelAnimationFrame(rafId);
-  }, [isSqueezing, layoutParams, targetPages, squeezeIteration, squeezeOneStep]);
+    return () => { cancelled = true; cancelAnimationFrame(rafId); };
+  }, [isSqueezing, layoutParams, targetPages, squeezeIteration, squeezeOneStep, includeGuide, showGuide]);
 
   // Reset and re-run squeeze
   const resetSqueeze = useCallback(() => {
@@ -123,12 +133,12 @@ export default function TypesetterClient({ material }: { material: Material }) {
     resetSqueeze();
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => { if (!isSqueezing && !overflow) window.print(); };
 
   // Status text
   const statusText = isSqueezing
     ? `Squeezing… (${layoutParams.fontSizePt}pt, ${layoutParams.columns} cols)`
-    : `✓ ${layoutParams.fontSizePt}pt, ${layoutParams.columns} cols, ${activeItems.length} items${droppedCount > 0 ? ` (${droppedCount} dropped)` : ""}`;
+    : `${overflow ? "⚠ Overflow — increase page limit or shorten content." : "✓ Fits."} ${layoutParams.fontSizePt}pt, ${layoutParams.columns} cols, ${activeItems.length} items${droppedCount > 0 ? ` (${droppedCount} dropped)` : ""}`;
 
   return (
     <div className="min-h-screen bg-[var(--background)] print:bg-white text-white print:text-black font-sans pb-20 print:pb-0 print:block">
@@ -192,10 +202,14 @@ export default function TypesetterClient({ material }: { material: Material }) {
               {includeGuide ? "Guide: In pages" : "Guide: Separate"}
             </button>
 
+            <button onClick={() => { setShowGuide((value) => !value); resetSqueeze(); }} disabled={isSqueezing} className="text-sm text-[var(--text-muted)]">
+              {showGuide ? "Hide guide" : "Show guide"}
+            </button>
+            <span className="text-xs text-[var(--text-muted)]">{showGuide && !includeGuide ? `${pages.length} sheet + 1 guide page` : `${pages.length} total pages`}</span>
             {/* Save PDF */}
             <button
               onClick={handlePrint}
-              disabled={isSqueezing}
+              disabled={isSqueezing || overflow}
               className="flex items-center gap-2 px-4 py-2 bg-white text-black font-medium rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <Download className="w-4 h-4" />
@@ -205,101 +219,20 @@ export default function TypesetterClient({ material }: { material: Material }) {
         </div>
       </div>
 
-      {/* ── Typesetting Canvas ── */}
-      <div className="flex flex-col items-center gap-8 mt-8 pb-12 print:m-0 print:gap-0 print:pb-0 print:block">
-        
-        {/*
-          1. Off-screen measuring container (absolute, hidden).
-          We use this purely to let the Squeeze Loop measure the scrollWidth.
-        */}
-        <div 
-          ref={measureRef} 
-          className="absolute opacity-0 pointer-events-none -z-50"
-          style={{ left: "-9999px", top: 0, width: "8.5in" }} // match real container width
-        >
-          <SheetPage
-            items={activeItems}
-            params={layoutParams}
-            courseName={material.course_name}
-          />
+      <div className="sheet-canvas flex flex-col items-center gap-8 mt-8 pb-12 print:m-0 print:gap-0 print:pb-0 print:block">
+        <div ref={measureRef} className="print:hidden" aria-hidden="true" style={{ position: "absolute", visibility: "hidden", left: "-10000px", top: 0, width: "8.5in" }}>
+          <SheetPage items={activeItems} params={layoutParams} courseName={material.course_name}
+            guide={showGuide && includeGuide ? <MetaGuide compact courseName={material.course_name} directive={material.user_directive} droppedCount={droppedCount} /> : undefined} />
         </div>
-
-        <style dangerouslySetInnerHTML={{ __html: `
-          @media print {
-            @page {
-              size: 8.5in 11in;
-              margin: 0;
-            }
-            body {
-              margin: 0;
-              padding: 0;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-          }
-        `}} />
-
-        {/* 
-          2. SCREEN VIEW: Visible Pages (Windowed) 
-          We render the exact same SheetPage N times.
-          Each wrapper is strict 8.5x11 with overflow hidden.
-          Inside, we shift the SheetPage left by (8.5in + 0.15in gap) per page.
-        */}
-        <div className="print:hidden flex flex-col items-center gap-8">
-          {Array.from({ length: targetPages }).map((_, pageIndex) => (
-            <div 
-              key={pageIndex}
-              className="w-[8.5in] h-[11in] bg-white overflow-hidden shadow-2xl relative"
-            >
-              <div 
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: `calc(${pageIndex} * (-8.5in - 0.15in))`,
-                  width: `${targetPages * 8.65}in`, // Just give it plenty of room to flow
-                }}
-              >
-                <SheetPage
-                  items={activeItems}
-                  params={layoutParams}
-                  courseName={material.course_name}
-                />
-              </div>
-            </div>
-          ))}
-
-          {/* Screen-only Navigation Guide */}
-          <div className="w-[8.5in] bg-white shadow-2xl">
-            <MetaGuide
-              courseName={material.course_name}
-              directive={material.user_directive}
-              droppedCount={droppedCount}
-            />
+        {pages.map((columnItems, pageIndex) => (
+          <div className="physical-page" key={pageIndex}>
+            <SheetPage items={activeItems} params={layoutParams} courseName={material.course_name} columnItems={columnItems}
+              guide={showGuide && includeGuide ? <MetaGuide compact courseName={material.course_name} directive={material.user_directive} droppedCount={droppedCount} /> : undefined} />
           </div>
-        </div>
-
-        {/*
-          3. PRINT VIEW: Single continuous sheet
-          The browser's native print engine is much better at slicing a tall multi-column container
-          than printing overlapping/shifted absolute positioned windows.
-        */}
-        <div className="hidden print:block w-[8.5in]">
-          <SheetPage
-            items={activeItems}
-            params={layoutParams}
-            courseName={material.course_name}
-            unboundedHeight={true}
-          />
-          
-          {/* Print-only Navigation Guide. Breaks to new page if not included in the main sheet flow. */}
-          <div className={!includeGuide ? "break-before-page" : "mt-4"}>
-            <MetaGuide
-              courseName={material.course_name}
-              directive={material.user_directive}
-              droppedCount={droppedCount}
-            />
-          </div>
-        </div>
+        ))}
+        {showGuide && !includeGuide && <div ref={guideMeasureRef} className="physical-page">
+          <MetaGuide courseName={material.course_name} directive={material.user_directive} droppedCount={droppedCount} />
+        </div>}
       </div>
     </div>
   );
