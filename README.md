@@ -20,18 +20,7 @@ SUPABASE_SERVICE_ROLE_KEY=<local service role key>
 NEXT_PUBLIC_ENABLE_TEST_AUTH=true
 ```
 
-Apply the SQL files in the order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md), then create the local Playwright account:
-
-```sh
-node scripts/create-playwright-user.mjs
-```
-
-Start the app and save an authenticated Playwright session:
-
-```sh
-npm run dev -- --hostname 127.0.0.1
-node scripts/playwright-auth.mjs
-```
+Apply the SQL files in the order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md).
 
 Run automated checks:
 
@@ -44,6 +33,6 @@ node tests/admin.test.mjs
 git diff --check
 ```
 
-Use `playwright/.auth/user.json` for authenticated browser tests. Keep `.env.local`, auth state, screenshots, and generated PDFs out of version control.
+To have an agent run the authenticated browser test, ask: `Use the local-testing skill, start the local Supabase and Next.js services, authenticate the local Playwright account, and verify dashboard access, guide modes, overflow reporting, and printed PDF page counts.`
 
-To use hosted Supabase, set the hosted URL, anon key, and server-only service-role key in `.env.local`, set `NEXT_PUBLIC_ENABLE_TEST_AUTH=false`, and restart Next.js. The local test login is restricted to local Supabase URLs.
+Keep `.env.local`, auth state, screenshots, and generated PDFs out of version control. To use hosted Supabase, set the hosted URL, anon key, and server-only service-role key in `.env.local`, set `NEXT_PUBLIC_ENABLE_TEST_AUTH=false`, and restart Next.js.
