@@ -10,5 +10,18 @@ const response = await fetch(`${url}/auth/v1/admin/users`, {
   headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
   body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { full_name: "Playwright Test" } }),
 });
-if (!response.ok && response.status !== 422) throw new Error(`Could not create test user (${response.status})`);
+if (response.status === 422) {
+  const listing = await fetch(`${url}/auth/v1/admin/users?per_page=100`, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } });
+  const users = await listing.json();
+  const existing = (users.users || []).find((user) => user.email === email);
+  if (!existing) throw new Error("Test account already exists but could not be found");
+  const update = await fetch(`${url}/auth/v1/admin/users/${existing.id}`, {
+    method: "PUT",
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ password, email_confirm: true }),
+  });
+  if (!update.ok) throw new Error(`Could not reset test user (${update.status})`);
+} else if (!response.ok) {
+  throw new Error(`Could not create test user (${response.status})`);
+}
 console.log(`Local Playwright account ready: ${email}`);
