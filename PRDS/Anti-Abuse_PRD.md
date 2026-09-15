@@ -1,60 +1,81 @@
-# **PRD: Identity Guard & Anti-Abuse System**
+# PRD: Identity Guard & Anti-Abuse System
 
----
+## Status
 
-## **1. Executive Summary**
+This document defines the **target state**. It does not claim that every requirement is deployed.
 
-The objective of this system is to enforce a strict **"1-Trial-Per-Student"** policy and facilitate a secure conversion to a **$3.00 for 10 credits** paid model. By integrating institutional authentication with financial verification, the platform mitigates the risk of credit farming via email aliases or multiple accounts.
+The codebase currently has an authenticated extraction route, a process-local extraction limit of five requests per user per minute, server-configured extraction admin bypass, and SQL migrations for credit reservations and some anti-abuse controls. Deployment of those migrations is unverified. Stripe Checkout, Stripe webhooks, signup rate limits, audit logs, and alias resolution are not implemented.
 
----
+## 1. Goal and scope
 
-## **2. Authentication & Identity Layer**
+SoloSheet offers one trial sheet to eligible students, then sells a $3.00 package of 10 credits through Stripe. The system should deter obvious credit farming through eligibility checks, atomic credit use, and measured service limits without collecting device fingerprints.
 
-### **2.1 Institutional Domain Lockdown**
+This policy applies to Google-authenticated users. It is not proof of active enrollment: an `.edu` address is only an eligibility signal. Support for non-US institutions or an explicit list of approved schools is a separate product decision.
 
-- **Constraint**: Access is strictly limited to verified educational domains to ensure only students can use the platform.
-- **Implementation**: The Google OAuth provider is configured with a whitelist restricted to `*.edu`.
-- **Validation**: Any sign-in attempt from a non-whitelisted domain (e.g., `@gmail.com`) is rejected at the provider level. except for admin whitelist. create somewhere where i can create a list of emails to be whitelisted and have unlimited credits.
+## 2. Authentication and identity
 
-### **2.2 Immutable Identity Mapping**
+### 2.1 Eligibility enforcement
 
-- **Constraint**: Prevent a single student from creating multiple accounts using university email aliases (e.g., `netid@wisc.edu` vs. `name@wisc.edu`).
-- **Implementation**: The system uses the **Google Unique Identifier (`sub`)** as the primary key for user profiles.
-- **Logic**: Because Google provides the same unique ID regardless of the alias used, the application resolves all associated aliases to a single existing profile.
+- The server-side signup path is the source of truth for eligibility. It must reject non-`.edu` addresses unless the address is in a server-managed administrator allowlist.
+- Google or Supabase domain controls may be used as an additional convenience check, but they cannot be the only enforcement point and cannot implement database-based administrator exceptions.
+- The allowlist must be private: ordinary clients cannot read or change it. Adding or removing an entry requires a secure administrator workflow and an audit event.
+- Eligibility is evaluated from the verified identity returned by Supabase Auth, never from client-provided email fields.
 
----
+### 2.2 Identity mapping
 
-## **3. Credit Allocation & Trial Logic**
+- A profile is keyed by the Supabase Auth user ID, not by an email address or an application-created Google `sub` column.
+- The same Google account should retain the same Supabase identity across sign-ins. The application does not promise to merge separate Google accounts simply because their emails look like institutional aliases.
+- If stronger alias prevention becomes necessary, evaluate a school-specific verified identifier or a user-approved account-linking flow. Do not infer ownership from similar email addresses.
 
-### **3.1 The "Hook and Convert" Model**
+## 3. Trial, administrator, and anti-abuse policy
 
-- **Initial Grant**: Upon the first successful login of a unique institutional ID, the system grants exactly one trial credit.
-- **Default State**: After the trial credit is consumed, the account balance remains at zero until a purchase is made.
+### 3.1 Trial credit policy
 
-### **3.2 Device & Hardware Contextualization**
+- A new eligible non-admin profile receives exactly one trial credit.
+- Credits are reserved atomically before extraction so concurrent requests cannot spend the same trial or paid credit twice.
+- SoloSheet does not collect, store, or use browser or device fingerprints for eligibility, trial decisions, or account review.
+- Monitor aggregate, privacy-minimized signup and extraction metrics before introducing any new anti-abuse control. Any future control requires its own documented policy and privacy review.
 
-- **Requirement**: Associate a hardware/browser "fingerprint" with every new account during the signup handshake.
-- **Anti-Abuse Rule**: If a device fingerprint is already associated with an existing profile, any subsequent accounts created on that same hardware initialize with **zero credits** rather than the standard trial.
+### 3.2 Administrator access
 
----
+- Administrators are managed by one server-controlled source of truth. The current environment email list and database allowlist must be consolidated before launch.
+- An administrator’s unlimited status is enforced inside the atomic credit-reservation operation, not only in UI or application code.
+- Administrator actions and bypassed extractions are audit logged. A finite placeholder balance such as `9999` is not a substitute for an unlimited-role policy.
 
-## **4. Financial Integration & Fulfillment**
+## 4. Stripe payments and fulfillment
 
-### **4.1 Transactional Identity (Stripe)**
+### 4.1 Checkout creation
 
-- **Payment Trigger**: Users purchase additional credits at a rate of $3.00 for 10 sheets.
-- **Identity Linking**: Every Stripe Checkout session includes the user’s unique internal `user_id` as a `client_reference_id` to ensure accurate fulfillment.
+- An authenticated server route creates a Stripe Checkout Session for one server-configured $3.00 / 10-credit Price ID, currency, and quantity. The client cannot choose the amount, quantity, or target user.
+- The route sets the authenticated Supabase user ID as `client_reference_id` and records a pending purchase with the Checkout Session ID.
+- Stripe processes payments; SoloSheet remains responsible for applicable tax, consumer, and privacy obligations. Assess Stripe Tax before selling outside the intended market.
 
-### **4.2 Automated Fulfillment & Fraud Detection**
+### 4.2 Webhook fulfillment
 
-- **Webhook Logic**: Upon verification of a successful payment, the system immediately increments the user's `credits` column by 3 units.
-- **Fraud Deterrence**: The system leverages professional payment processing "Radar" to identify and block multiple transactions from the same credit card if distributed across different accounts.
+- A server-only webhook route verifies the Stripe signature against the unmodified raw request body before parsing it.
+- Fulfill only the expected event for a Checkout Session that belongs to the recorded user and has `payment_status = paid`. If delayed payment methods are enabled, handle their later success event instead of granting credits early.
+- In one database transaction, record the unique Stripe event ID, record payment/session ID, amount, currency, package, and grant exactly 10 credits. A repeated event must return success without granting again.
+- Only return a successful webhook response after the transaction commits; safely retry database failures.
+- Refunds, disputes, and chargebacks create an auditable account hold for manual review. Do not silently remove already-spent credits until a refund policy is defined.
 
----
+### 4.3 Rate limits and velocity signals
 
-## **5. Acceptance Criteria**
+- Enforce extraction limits with a shared, durable store rather than per-process memory.
+- If signup velocity controls are introduced, derive IPs only from a trusted proxy, hash/minimize retained data, and document retention. Shared university NATs mean a 10-per-hour IP signal should trigger review or friction, not automatically deny legitimate students.
+- Domain-volume alerts need a durable signup event source, a named recipient, an escalation path, and a privacy-safe aggregation window.
 
-- **AC 1**: Authentication is denied for any email address not ending in `.edu`.
-- **AC 2**: Multiple login attempts using aliases for the same NetID result in the same profile session.
-- **AC 3**: Successful $1.00 payment results in the immediate addition of exactly 3 credits to the profile.
-- **AC 4**: The administrator account (`ayush170505@gmail.com`) retains unlimited credit status and bypasses domain restrictions.
+## 5. Acceptance criteria
+
+- [ ] An authenticated user with a non-`.edu` verified email cannot receive a profile or trial credit unless a server-managed allowlist entry exists; ordinary clients cannot read or modify that allowlist.
+- [ ] The same Supabase Auth identity always resolves to one profile and one credit balance. Separate Google accounts are not falsely merged from email similarity.
+- [ ] A new eligible non-admin profile receives exactly one trial credit, and concurrent extraction attempts cannot spend that credit more than once.
+- [ ] No browser or device fingerprint is collected, stored, or used in signup, trial, or review workflows.
+- [ ] Administrator unlimited status is enforced by the credit reservation transaction, survives concurrent requests, and produces an audit record for each bypassed extraction.
+- [ ] A user cannot create a Stripe Checkout Session for another user, alter the configured price/package, or receive credits before the session is paid.
+- [ ] A valid paid Stripe Checkout yields exactly 10 credits once. Invalid signatures, unexpected event types, unpaid sessions, duplicate events, concurrent deliveries, and transaction retries cannot create extra credits.
+- [ ] Refund, dispute, and chargeback events are recorded and put the account into the documented review path.
+- [ ] Extraction and signup velocity controls behave consistently across server instances; shared IP signals do not become unreviewed permanent denials.
+
+## 6. Delivery prerequisites
+
+Before declaring this PRD complete, apply and verify all relevant Supabase migrations in a non-production environment, add regression coverage for the acceptance criteria, and exercise Stripe in test mode. Update product copy that still advertises three free credits when the one-credit trial is actually deployed.

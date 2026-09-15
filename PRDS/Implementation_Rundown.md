@@ -11,7 +11,6 @@ This document serves as the master guide for building, deploying, and maintainin
 - **Database & Authentication:** Supabase (PostgreSQL, Row Level Security, Triggers)
 - **AI Processing:** Google Gemini API (for extracting and formatting dense cheat sheets)
 - **Payments:** Stripe (Checkout Sessions, Webhooks)
-- **Identity & Fraud Prevention:** FingerprintJS (hardware fingerprinting)
 
 ---
 
@@ -33,7 +32,6 @@ The database focuses on strong isolation and automatic provisioning:
 - **`profiles`:** Matches `auth.users` 1-to-1. Tracks remaining `credits` (default 1).
 - **`course_materials`:** Stores the generated cheat sheets linked to a user. Contains `course_name`, `extracted_json`, `target_pages`, and `user_directive`.
 - **`admin_whitelist`:** A simple lookup table of emails that bypass all domain restrictions and receive an initial balance of 9,999 credits.
-- **`device_fingerprints`:** Maps a given physical device (`fingerprint_hash`) to the user (`user_id`).
 - **Row Level Security (RLS):** Policies are strictly defined so users can only `SELECT` and `INSERT` rows where `user_id = auth.uid()`.
 
 ---
@@ -50,13 +48,9 @@ SoloSheet enforces an incredibly strict entry gateway designed to force conversi
 
 ---
 
-## 5. Anti-Abuse System (1-Trial-Per-Student)
+## 5. Trial credit controls
 
-To prevent generating unlimited free trials by exploiting alias emails or creating entirely new `.edu` addresses, the system relies on hardware fingerprinting:
-
-1. **Initial Grant:** By default, new legitimate `.edu` accounts receive exactly **1 trial credit**.
-2. **Client-Side Hash:** On the first dashboard load, FingerprintJS generates a `client_hash` based on their browser, hardware, and IP.
-3. **Database Check:** The client invokes a secure Supabase RPC function (`register_device_fingerprint`). If the `client_hash` is already found existing continuously under a _different_ `user_id`, the system assumes this is a burner account and aggressively updates `profiles.credits = 0`, revoking the trial.
+New legitimate `.edu` accounts receive exactly **1 trial credit**. The extraction service atomically reserves that credit before provider work, preventing repeated clicks or concurrent requests from spending it more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and aggregate service limits are the current anti-abuse controls.
 
 ---
 

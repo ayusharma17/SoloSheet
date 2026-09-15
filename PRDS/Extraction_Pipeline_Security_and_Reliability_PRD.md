@@ -116,6 +116,7 @@ any non-disposable database:
 5. `supabase/migration_storage_setup.sql`
 6. `supabase/migration_phase6_credit_security.sql`
 7. `supabase/migration_phase7_atomic_extraction.sql`
+8. `supabase/migration_phase8_retire_device_fingerprinting.sql`
 
 Phase 6 secures legacy credit functions and access policies. Phase 7 adds the
 durable `extraction_requests` reservation protocol. SQL files describe intended

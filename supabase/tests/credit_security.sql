@@ -38,10 +38,6 @@ BEGIN
     PERFORM email FROM public.admin_whitelist;
     RAISE EXCEPTION 'Admin whitelist disclosure succeeded';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
-  BEGIN
-    PERFORM public.register_device_fingerprint(NULL);
-    RAISE EXCEPTION 'Null fingerprint accepted';
-  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
 END;
 $$;
 RESET ROLE;
@@ -88,7 +84,7 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname IN
-      ('add_credits', 'decrement_credits', 'handle_new_user', 'register_device_fingerprint', 'cleanup_old_course_materials')
+      ('add_credits', 'decrement_credits', 'handle_new_user', 'cleanup_old_course_materials')
     AND p.prosecdef AND NOT ('search_path=""' = ANY(coalesce(p.proconfig, ARRAY[]::text[])))) THEN
     RAISE EXCEPTION 'Unsafe SECURITY DEFINER search_path';
   END IF;
