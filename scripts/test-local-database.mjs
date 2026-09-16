@@ -21,7 +21,8 @@ for (const migration of ['migration.sql', 'migration_phase2.sql', 'migration_pha
   'migration_phase6_credit_security.sql', 'migration_phase7_atomic_extraction.sql',
   'migration_phase8_retire_device_fingerprinting.sql',
   'migration_phase9_anti_abuse_foundation.sql',
-  'migration_phase10_identity_and_trial.sql']) {
+  'migration_phase10_identity_and_trial.sql',
+  'migration_phase11_extraction_access.sql']) {
   file(`supabase/${migration}`);
   console.log(`Applied ${migration}`);
 }
@@ -46,7 +47,7 @@ function concurrentSql(input) {
 }
 const results = await Promise.all(requestIds.map(id => concurrentSql(`
   SET request.jwt.claim.role='service_role';
-  SELECT public.reserve_extraction('10000000-0000-4000-8000-000000000001','${id}',repeat('a',64),false)->>'status';
+  SELECT public.reserve_extraction('10000000-0000-4000-8000-000000000001','${id}',repeat('a',64))->>'status';
 `)));
 assert.equal(results.filter(status => status === 'reserved').length, 1);
 assert.equal(results.filter(status => status === 'no_credits').length, 7);

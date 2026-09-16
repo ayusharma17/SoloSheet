@@ -119,14 +119,16 @@ any non-disposable database:
 8. `supabase/migration_phase8_retire_device_fingerprinting.sql`
 9. `supabase/migration_phase9_anti_abuse_foundation.sql`
 10. `supabase/migration_phase10_identity_and_trial.sql`
+11. `supabase/migration_phase11_extraction_access.sql`
 
 Phase 6 secures legacy credit functions and access policies. Phase 7 adds the
 durable `extraction_requests` reservation protocol. Phase 8 retires device
 fingerprinting, and phase 9 adds the private administrator, audit, account-hold,
 and Stripe ledger foundation. Phase 10 makes that administrator source canonical,
 enforces verified educational-email eligibility, and grants the one-time trial.
-SQL files describe intended deployment; successful local execution does not prove
-hosted deployment.
+Phase 11 resolves administrator bypass and account holds inside the atomic
+extraction transaction. SQL files describe intended deployment; successful local
+execution does not prove hosted deployment.
 
 ### Server and client boundaries
 

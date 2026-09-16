@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { isAdminUser } from "@/lib/admin";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractFromMaterials } from "@/lib/gemini";
@@ -50,13 +49,15 @@ export async function POST(request: Request) {
     const identity = { p_user_id: user.id, p_request_id: requestId };
     const reservation = await creditCall(rpc, "reserve_extraction", {
       ...identity, p_fingerprint: fingerprint,
-      p_is_admin: await isAdminUser(user),
     });
     if (reservation.status === "no_credits") {
       return NextResponse.json({ error: "No credits remaining" }, { status: 403 });
     }
     if (reservation.status === "processing") {
       return NextResponse.json({ error: "This extraction is still processing.", code: "EXTRACTION_PROCESSING" }, { status: 409 });
+    }
+    if (reservation.status === "account_held") {
+      return NextResponse.json({ error: "This account is under review.", code: "ACCOUNT_HELD" }, { status: 423 });
     }
     if (reservation.status === "failed" || reservation.status === "conflict") {
       return NextResponse.json({ error: "Start a new extraction attempt to retry.", code: "EXTRACTION_RESTART_REQUIRED" }, { status: 409 });
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
       });
     } else if (reservation.status !== "completed") {
       throw new Error("Unexpected reservation status");
+    }
+    if (result.status === "account_held") {
+      return NextResponse.json({ error: "This account is under review.", code: "ACCOUNT_HELD" }, { status: 423 });
     }
     if (!result.materialId) throw new Error("Saved extraction is unavailable");
     // A cleanup failure must not turn committed work into a failed extraction.

@@ -29,6 +29,7 @@ interface UploadModalProps {
   onClose: () => void;
   onSuccess: () => void;
   credits: number;
+  isAdmin: boolean;
 }
 
 interface UploadedFile {
@@ -49,6 +50,7 @@ export default function UploadModal({
   onClose,
   onSuccess,
   credits,
+  isAdmin,
 }: UploadModalProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [courseName, setCourseName] = useState("");
@@ -592,7 +594,7 @@ export default function UploadModal({
         <div className="flex items-center justify-between p-6 border-t-[3px] border-black bg-neutral-50">
           <p className="text-xs font-bold uppercase text-black">
             Cost: <span className="text-[#e60000]">1 credit</span>{" "}
-            <span className="text-neutral-500">({credits} left)</span>
+            <span className="text-neutral-500">({isAdmin ? "Unlimited" : `${credits} left`})</span>
           </p>
 
           <button

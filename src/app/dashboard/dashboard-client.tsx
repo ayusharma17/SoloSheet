@@ -33,10 +33,11 @@ interface DashboardClientProps {
   };
   credits: number;
   isAdmin: boolean;
+  isAccountHeld: boolean;
   materials: CourseMaterial[];
 }
 
-export default function DashboardClient({ user, credits, isAdmin, materials }: DashboardClientProps) {
+export default function DashboardClient({ user, credits, isAdmin, isAccountHeld, materials }: DashboardClientProps) {
   const router = useRouter();
   const supabase = createClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -53,6 +54,7 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
   };
 
   const isOutOfCredits = !isAdmin && credits <= 0;
+  const generationBlocked = isAccountHeld || isOutOfCredits;
   const sheetsCreated = materials.length;
   const lastActivity = materials.length > 0
     ? new Date(materials[0].created_at).toLocaleDateString("en-US", {
@@ -82,10 +84,10 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
             <div className="hidden sm:flex items-center gap-2 px-3 py-1 border-2 border-black">
               <CreditCard className="w-4 h-4 text-black" />
               <span className="text-xs font-bold uppercase tracking-tight">
-                <span className={credits > 0 ? "text-black" : "text-[#e60000]"}>
-                  {credits}
+                <span className={isAdmin || credits > 0 ? "text-black" : "text-[#e60000]"}>
+                  {isAdmin ? "∞" : credits}
                 </span>{" "}
-                <span className="text-neutral-500">credits</span>
+                <span className="text-neutral-500">{isAdmin ? "unlimited" : "credits"}</span>
               </span>
             </div>
 
@@ -146,15 +148,15 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
                 <CreditCard className="w-5 h-5 text-black" />
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`text-6xl font-black tracking-tighter ${credits > 0 ? "text-black" : "text-[#e60000]"}`}>
-                  {credits}
+                <span className={`text-6xl font-black tracking-tighter ${isAdmin || credits > 0 ? "text-black" : "text-[#e60000]"}`}>
+                  {isAdmin ? "∞" : credits}
                 </span>
               </div>
             </div>
             <div className="mt-6 border-2 border-black h-3 w-full bg-white relative">
               <div
                 className="absolute top-0 left-0 h-full bg-[#e60000] transition-all duration-500"
-                style={{ width: `${Math.min((credits / 3) * 100, 100)}%` }}
+                style={{ width: isAdmin ? "100%" : `${Math.min((credits / 3) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -216,7 +218,7 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
             </div>
 
             <div className="flex-shrink-0 w-full sm:w-auto">
-              {isOutOfCredits ? (
+              {generationBlocked ? (
                 <div className="space-y-3">
                   <button
                     disabled
@@ -227,7 +229,7 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
                   </button>
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#e60000]">
                     <AlertCircle className="w-4 h-4" />
-                    System Halt: 0 Credits
+                    {isAccountHeld ? "System Halt: Account Under Review" : "System Halt: 0 Credits"}
                   </p>
                 </div>
               ) : (
@@ -303,6 +305,7 @@ export default function DashboardClient({ user, credits, isAdmin, materials }: D
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleUploadSuccess}
         credits={credits}
+        isAdmin={isAdmin}
       />
     </div>
   );

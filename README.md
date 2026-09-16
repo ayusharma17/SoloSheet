@@ -45,6 +45,7 @@ npm run lint
 node tests/extraction-credits.test.mjs
 node tests/extraction-validation.test.cjs
 node tests/admin.test.mjs
+node tests/account-holds.test.mjs
 git diff --check
 ```
 

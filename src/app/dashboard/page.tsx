@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { isAdminUser } from "@/lib/admin";
+import { isAccountHeld } from "@/lib/account-holds";
 import { redirect } from "next/navigation";
 import DashboardClient from "./dashboard-client";
 
@@ -38,6 +39,7 @@ export default async function DashboardPage() {
       }}
       credits={profile?.credits ?? 0}
       isAdmin={await isAdminUser(user)}
+      isAccountHeld={await isAccountHeld(user.id)}
       materials={materials ?? []}
     />
   );
