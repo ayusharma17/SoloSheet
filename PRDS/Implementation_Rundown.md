@@ -31,8 +31,9 @@ The database focuses on strong isolation and automatic provisioning:
 
 - **`profiles`:** Matches `auth.users` 1-to-1. Tracks remaining `credits` (default 1).
 - **`course_materials`:** Stores the generated cheat sheets linked to a user. Contains `course_name`, `extracted_json`, `target_pages`, and `user_directive`.
-- **`admin_whitelist`:** A simple lookup table of emails that bypass all domain restrictions and receive an initial balance of 9,999 credits.
-- **Row Level Security (RLS):** Policies are strictly defined so users can only `SELECT` and `INSERT` rows where `user_id = auth.uid()`.
+- **`admin_whitelist`:** The private, canonical list of administrator emails that bypasses domain restrictions and is changed only through an audited server workflow.
+- **`audit_events`:** An append-only application audit trail for trial grants and sensitive administrator/payment actions.
+- **Row Level Security (RLS):** User-owned product data is isolated by authenticated user ID; administrator, audit, hold, and payment tables are inaccessible to ordinary clients.
 
 ---
 
@@ -44,13 +45,13 @@ SoloSheet enforces an incredibly strict entry gateway designed to force conversi
 - **Domain Whitelist (`.edu` lock):**
   - Configured at the Google Cloud Console level (OAuth Consent Screen restrictions).
   - Backed up by a Supabase SQL Trigger (`handle_new_user`) that verifies the `new.email` ends in `.edu` or is present in the `admin_whitelist`. Any other email throws an exception, preventing profile creation.
-- **Alias Resolution:** Since universities often use aliases (`netid@wisc.edu` vs `name@wisc.edu`), Google passes the exact same unique identifier (`sub`) to Supabase regardless of the alias typed. Supabase's built-in OAuth handling treats these as the same user session implicitly.
+- **Identity Mapping:** Profiles are keyed by the Supabase Auth user ID. The same Supabase identity retains one profile, but separate Google accounts or institutional aliases are not guessed or merged.
 
 ---
 
 ## 5. Trial credit controls
 
-New legitimate `.edu` accounts receive exactly **1 trial credit**. The extraction service atomically reserves that credit before provider work, preventing repeated clicks or concurrent requests from spending it more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and atomic credit reservation are the MVP anti-abuse controls. Shared rate limiting is tracked separately as post-MVP reliability work.
+New verified `.edu` accounts receive exactly **1 trial credit** in the profile-creation transaction. Allowlisted administrators receive no finite placeholder balance; their unlimited status is resolved from the canonical database allowlist. The extraction service atomically reserves student credits before provider work, preventing repeated clicks or concurrent requests from spending the same credit more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and atomic credit reservation are the MVP anti-abuse controls. Shared rate limiting is tracked separately as post-MVP reliability work.
 
 ---
 

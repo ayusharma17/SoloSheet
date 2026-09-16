@@ -20,15 +20,17 @@ for (const migration of ['migration.sql', 'migration_phase2.sql', 'migration_pha
   'migration_phase5_anti_abuse.sql', 'migration_storage_setup.sql',
   'migration_phase6_credit_security.sql', 'migration_phase7_atomic_extraction.sql',
   'migration_phase8_retire_device_fingerprinting.sql',
-  'migration_phase9_anti_abuse_foundation.sql']) {
+  'migration_phase9_anti_abuse_foundation.sql',
+  'migration_phase10_identity_and_trial.sql']) {
   file(`supabase/${migration}`);
   console.log(`Applied ${migration}`);
 }
 file('supabase/tests/credit_security.sql');
 file('supabase/tests/anti_abuse_foundation.sql');
+file('supabase/tests/identity_and_trial.sql');
 sql("INSERT INTO auth.users(id,email) VALUES ('10000000-0000-4000-8000-000000000001','atomic@example.edu')");
 file('tests/atomic-credits.sql');
-console.log('Security, anti-abuse foundation, and atomic SQL regression assertions passed');
+console.log('Security, identity/trial, anti-abuse foundation, and atomic SQL regression assertions passed');
 sql("UPDATE public.profiles SET credits=1 WHERE id='10000000-0000-4000-8000-000000000001'");
 const requestIds = Array.from({ length: 8 }, (_, i) => `30000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 function concurrentSql(input) {

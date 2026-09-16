@@ -34,7 +34,7 @@ The stack is Next.js App Router, React, strict TypeScript, Tailwind CSS, Supabas
 - Production build: `npm run build`; serve the build with `npm start`.
 - There is currently no automated test script. Do not report `npm test` as a working check.
 
-Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `GOOGLE_API_KEY`. Optional server settings are `GEMINI_MODEL` and comma-separated `ADMIN_EMAILS`. Do not print or commit actual environment values, signed URLs, or credentials. The build uses `next/font/google` and may need network access to fetch fonts.
+Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `GOOGLE_API_KEY`. The optional model setting is `GEMINI_MODEL`. Administrator identity is database-managed; do not add an environment-based administrator list. Do not print or commit actual environment values, signed URLs, or credentials. The build uses `next/font/google` and may need network access to fetch fonts.
 
 `debug-extraction.ts` makes real Gemini calls and attempts a database insert; it is not an offline test. Use mocks or fixtures for routine verification. Use live services only when the task authorizes that integration work.
 
@@ -55,4 +55,3 @@ Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABA
 - Documentation-only edits need path/command accuracy and a diff check, not live extraction calls.
 - Finish with what changed, verification results, and remaining limitations. Do not claim live database policies, deployed behavior, or print output were verified without checking them.
 - use playwright when necessary to test changes end to end
-

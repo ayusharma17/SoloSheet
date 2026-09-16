@@ -8,8 +8,9 @@ Configure `SUPABASE_SERVICE_ROLE_KEY` in the server deployment only, alongside
 existing Supabase URL/anon key and Google API key settings. Never use a
 `NEXT_PUBLIC_` prefix for the service key. Missing configuration fails closed with
 HTTP 503. The browser session still authenticates the caller; the server passes
-that authenticated user ID into privileged credit RPCs. Admin bypass uses the
-existing `ADMIN_EMAILS` setting and requires a confirmed authentication email.
+that authenticated user ID into privileged credit RPCs. Administrator identity
+comes from the private database allowlist and requires a confirmed authentication
+email; there is no environment-based administrator list.
 
 Each attempt sends a UUID `requestId`. Keep the same UUID and payload after a
 network error: the original transaction may have committed. HTTP 409 with

@@ -37,7 +37,7 @@ export default async function DashboardPage() {
         avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
       }}
       credits={profile?.credits ?? 0}
-      isAdmin={isAdminUser(user)}
+      isAdmin={await isAdminUser(user)}
       materials={materials ?? []}
     />
   );

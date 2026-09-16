@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const identity = { p_user_id: user.id, p_request_id: requestId };
     const reservation = await creditCall(rpc, "reserve_extraction", {
       ...identity, p_fingerprint: fingerprint,
-      p_is_admin: isAdminUser(user),
+      p_is_admin: await isAdminUser(user),
     });
     if (reservation.status === "no_credits") {
       return NextResponse.json({ error: "No credits remaining" }, { status: 403 });

@@ -4,7 +4,7 @@
 
 This document defines the **target state**. It does not claim that every requirement is deployed.
 
-The codebase currently has an authenticated extraction route, a process-local extraction limit of five requests per user per minute, server-configured extraction admin bypass, and SQL migrations for credit reservations and some anti-abuse controls. Deployment of those migrations is unverified. Stripe Checkout, Stripe webhooks, signup rate limits, audit logs, and alias resolution are not implemented.
+The codebase currently has an authenticated extraction route, a process-local extraction limit of five requests per user per minute, database-backed administrator lookup, and forward SQL migrations for atomic credit reservations, private audit records, verified-email eligibility, and one-time trial provisioning. Deployment of those migrations is unverified. Stripe Checkout and Stripe webhooks are not implemented; rate limiting is separate post-MVP work.
 
 ## 1. Goal and scope
 
@@ -38,7 +38,7 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 
 ### 3.2 Administrator access
 
-- Administrators are managed by one server-controlled source of truth. The current environment email list and database allowlist must be consolidated before launch.
+- Administrators are managed by the private database allowlist as the single server-controlled source of truth.
 - An administrator’s unlimited status is enforced inside the atomic credit-reservation operation, not only in UI or application code.
 - Administrator actions and bypassed extractions are audit logged. A finite placeholder balance such as `9999` is not a substitute for an unlimited-role policy.
 
