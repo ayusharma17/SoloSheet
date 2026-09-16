@@ -50,7 +50,7 @@ SoloSheet enforces an incredibly strict entry gateway designed to force conversi
 
 ## 5. Trial credit controls
 
-New legitimate `.edu` accounts receive exactly **1 trial credit**. The extraction service atomically reserves that credit before provider work, preventing repeated clicks or concurrent requests from spending it more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and aggregate service limits are the current anti-abuse controls.
+New legitimate `.edu` accounts receive exactly **1 trial credit**. The extraction service atomically reserves that credit before provider work, preventing repeated clicks or concurrent requests from spending it more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and atomic credit reservation are the MVP anti-abuse controls. Shared rate limiting is tracked separately as post-MVP reliability work.
 
 ---
 

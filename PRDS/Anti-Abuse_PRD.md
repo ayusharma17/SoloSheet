@@ -8,7 +8,7 @@ The codebase currently has an authenticated extraction route, a process-local ex
 
 ## 1. Goal and scope
 
-SoloSheet offers one trial sheet to eligible students, then sells a $3.00 package of 10 credits through Stripe. The system should deter obvious credit farming through eligibility checks, atomic credit use, and measured service limits without collecting device fingerprints.
+SoloSheet offers one trial sheet to eligible students, then sells a $3.00 package of 10 credits through Stripe. The MVP should deter obvious credit farming through eligibility checks and atomic credit use without collecting device fingerprints.
 
 This policy applies to Google-authenticated users. It is not proof of active enrollment: an `.edu` address is only an eligibility signal. Support for non-US institutions or an explicit list of approved schools is a separate product decision.
 
@@ -58,12 +58,6 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 - Only return a successful webhook response after the transaction commits; safely retry database failures.
 - Refunds, disputes, and chargebacks create an auditable account hold for manual review. Do not silently remove already-spent credits until a refund policy is defined.
 
-### 4.3 Rate limits and velocity signals
-
-- Enforce extraction limits with a shared, durable store rather than per-process memory.
-- If signup velocity controls are introduced, derive IPs only from a trusted proxy, hash/minimize retained data, and document retention. Shared university NATs mean a 10-per-hour IP signal should trigger review or friction, not automatically deny legitimate students.
-- Domain-volume alerts need a durable signup event source, a named recipient, an escalation path, and a privacy-safe aggregation window.
-
 ## 5. Acceptance criteria
 
 - [ ] An authenticated user with a non-`.edu` verified email cannot receive a profile or trial credit unless a server-managed allowlist entry exists; ordinary clients cannot read or modify that allowlist.
@@ -74,8 +68,7 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 - [ ] A user cannot create a Stripe Checkout Session for another user, alter the configured price/package, or receive credits before the session is paid.
 - [ ] A valid paid Stripe Checkout yields exactly 10 credits once. Invalid signatures, unexpected event types, unpaid sessions, duplicate events, concurrent deliveries, and transaction retries cannot create extra credits.
 - [ ] Refund, dispute, and chargeback events are recorded and put the account into the documented review path.
-- [ ] Extraction and signup velocity controls behave consistently across server instances; shared IP signals do not become unreviewed permanent denials.
 
 ## 6. Delivery prerequisites
 
-Before declaring this PRD complete, apply and verify all relevant Supabase migrations in a non-production environment, add regression coverage for the acceptance criteria, and exercise Stripe in test mode. Update product copy that still advertises three free credits when the one-credit trial is actually deployed.
+Before declaring this PRD complete, apply and verify all relevant Supabase migrations in a non-production environment, add regression coverage for the acceptance criteria, and exercise Stripe in test mode. Update product copy that still advertises three free credits when the one-credit trial is actually deployed. Shared rate limiting and signup-velocity controls are separate post-MVP work tracked in `TODO.md`.
