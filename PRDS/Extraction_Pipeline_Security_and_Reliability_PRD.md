@@ -106,8 +106,12 @@ As a student, I want the PDF I print to match the preview and requested limit.
 
 ### Database migrations
 
-Apply these in order, as the local database owner/service role, after backing up
-any non-disposable database:
+The numbered list below records historical evolution; it is not a supported
+fresh-install procedure because stopping after an early phase can leave unsafe
+permissions active. For a fresh database, generate and execute
+`supabase/bootstrap.sql` as one transaction by following
+[`docs/database-bootstrap.md`](../docs/database-bootstrap.md). For an existing
+database, back it up and apply only the unapplied forward phases in this order:
 
 1. `supabase/migration.sql`
 2. `supabase/migration_phase2.sql`
@@ -189,8 +193,9 @@ execution and live Gemini extraction tests remain separate deployment checks.
 
 ## Risks and mitigations
 
-- **Migration ordering or partial deployment:** apply one phase at a time and run
-  the SQL regression assertions before enabling the matching route.
+- **Migration ordering or partial deployment:** use the atomic bootstrap for a
+  fresh database. For an existing database, keep traffic on the prior app while
+  each required forward phase is applied and verified.
 - **Missing service-role configuration:** extraction fails closed with a 503 rather
   than falling back to a client-controlled balance update.
 - **Stale reservations:** the database recovers processing rows older than the

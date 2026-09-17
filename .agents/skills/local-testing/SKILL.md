@@ -36,9 +36,11 @@ clear name such as `.env.local.local-backup`; restart Next.js after switching.
    `SUPABASE_SERVICE_ROLE_KEY`.
 4. Enable the development-only login with
    `NEXT_PUBLIC_ENABLE_TEST_AUTH=true`. It is effective only in development.
-5. Apply the SQL phases in the order documented by
-   `PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md`. Confirm the target
-   database is local before applying mutations.
+5. For a fresh local database, regenerate and apply `supabase/bootstrap.sql` as
+   one transaction following `docs/database-bootstrap.md`. Never stop after an
+   early historical phase. Confirm the target database is local before applying
+   mutations; for an existing database, apply only reviewed, unapplied forward
+   migrations.
 6. Create/reset the test account with
    `node scripts/create-playwright-user.mjs`.
 
@@ -47,11 +49,8 @@ clear name such as `.env.local.local-backup`; restart Next.js after switching.
 Run the repository's available checks:
 
 ```sh
-npm run lint
-./node_modules/.bin/tsc --noEmit --incremental false
-node tests/extraction-credits.test.mjs
-node tests/extraction-validation.test.cjs
-node tests/admin.test.mjs
+npm run check
+npm run build
 git diff --check
 ```
 

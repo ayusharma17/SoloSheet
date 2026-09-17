@@ -10,14 +10,6 @@
   # Free tier: max 10s, Pro tier: max 26s
   node_bundler = "esbuild"
 
-[[headers]]
-  # Enable CORS for Supabase Storage uploads
-  for = "/api/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
-
 # Optimize for Next.js App Router
 [build.environment]
   NEXT_TELEMETRY_DISABLED = "1"

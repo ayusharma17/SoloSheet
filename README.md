@@ -1,5 +1,11 @@
 # SoloSheet
-Web app to create cheat sheets that you can bring with you to your exam
+
+SoloSheet turns uploaded lecture PDFs and images into dense, printable study
+sheets. The application uses Next.js, Supabase, Google Gemini, and Stripe.
+
+This repository is licensed under the [MIT License](LICENSE). Please read the
+[security policy](SECURITY.md) before reporting a vulnerability and
+[contribution guide](CONTRIBUTING.md) before opening a pull request.
 
 ## Local testing
 
@@ -37,8 +43,11 @@ Start the local app:
 npm run dev -- --hostname 127.0.0.1
 ```
 
-Restart Next.js whenever `.env.local` changes. Apply the SQL files once, in the
-order documented in [the extraction pipeline PRD](PRDS/Extraction_Pipeline_Security_and_Reliability_PRD.md); repeat this only after resetting the database or creating a new Supabase project.
+Restart Next.js whenever `.env.local` changes. For a fresh database, apply the
+generated `supabase/bootstrap.sql` in one execution. Do not apply only an early
+prefix of the historical phase files: the intermediate schema can be insecure.
+See [database bootstrap and migration safety](docs/database-bootstrap.md) for
+fresh and existing database procedures.
 
 `npx supabase start` runs the local backend services (Auth, Postgres, Storage, and
 REST). `npm run dev` runs only the Next.js frontend/API. Full local integration
@@ -74,6 +83,10 @@ To have an agent run the authenticated browser test, ask: `Use the local-testing
 
 Keep `.env.local`, auth state, screenshots, and generated PDFs out of version control. To use hosted Supabase, set the hosted URL, anon key, and server-only service-role key in `.env.local`, set `NEXT_PUBLIC_ENABLE_TEST_AUTH=false`, and restart Next.js.
 
+Only the self-authored PDF under `Test_Files/synthetic/` may be committed as an
+upload fixture. Regenerate it with `npm run fixtures:generate`; never commit real
+lecture notes, annotations, assignments, or student documents.
+
 ## Choosing hosted or local Supabase
 
 Next.js loads `.env.local` before `.env`, so only one Supabase target should be
@@ -107,5 +120,17 @@ npm run dev -- --hostname 127.0.0.1
 ```
 
 The local setup uses the development test account because Google OAuth is not
-enabled by default in the local stack. Apply the SQL phases once per database;
-repeat them only after a database reset or when creating a new project.
+enabled by default in the local stack. Apply the atomic bootstrap once per fresh
+database. Existing deployments must use only unapplied forward migrations as
+described in [the database guide](docs/database-bootstrap.md).
+
+## Public deployment notes
+
+The in-app Terms and Privacy Policy are operational starter documents, not a
+substitute for review based on the operator's jurisdiction, contact details,
+retention promises, and production vendor settings. Review them before accepting
+real users or payments.
+
+Before making a previously private repository public, follow
+[the public release checklist](docs/public-release.md). Deleting a private file
+from the current tree does not remove it from Git history.

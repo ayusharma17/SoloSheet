@@ -9,6 +9,7 @@ import {
 import { readTextBody, RequestBodyError } from "../src/lib/request-body.ts";
 import { isExpectedStripePrice } from "../src/lib/stripe.ts";
 import { copyResponseCookies } from "../src/lib/response-cookies.ts";
+import nextConfig from "../next.config.ts";
 
 function withEnvironment(values, callback) {
   const previous = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
@@ -109,4 +110,17 @@ test("Stripe package validation requires active one-time $3 USD price", () => {
   assert.equal(isExpectedStripePrice({ ...price, type: "recurring" }), false);
   assert.equal(isExpectedStripePrice({ ...price, unit_amount: 301 }), false);
   assert.equal(isExpectedStripePrice({ ...price, currency: "cad" }), false);
+});
+
+test("all application routes receive baseline browser security headers", async () => {
+  const routes = await nextConfig.headers();
+  assert.equal(routes.length, 1);
+  assert.equal(routes[0].source, "/:path*");
+  const headers = Object.fromEntries(routes[0].headers.map(({ key, value }) => [key, value]));
+  assert.match(headers["Content-Security-Policy"], /frame-ancestors 'none'/);
+  assert.match(headers["Content-Security-Policy"], /object-src 'none'/);
+  assert.equal(headers["Referrer-Policy"], "strict-origin-when-cross-origin");
+  assert.equal(headers["X-Content-Type-Options"], "nosniff");
+  assert.equal(headers["X-Frame-Options"], "DENY");
+  assert.equal(headers["Strict-Transport-Security"], "max-age=31536000");
 });

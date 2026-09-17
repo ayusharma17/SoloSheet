@@ -1,5 +1,11 @@
 # Supabase Storage Migration - Implementation Complete
 
+> Historical document: do not use the isolated storage commands below to
+> initialize a new database. They can leave prerequisite and hardening phases
+> unapplied. Use the atomic fresh-install procedure in
+> [`docs/database-bootstrap.md`](docs/database-bootstrap.md). Existing databases
+> must apply only reviewed, unapplied forward migrations.
+
 ## Summary
 
 Successfully migrated CheatSheetAI from in-memory base64 file uploads to Supabase Storage, enabling support for files up to **200MB** (previously limited to ~5MB due to Vercel's body size restrictions).

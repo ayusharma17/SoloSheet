@@ -16,20 +16,8 @@ sql(`CREATE DATABASE ${database}`, 'postgres');
 console.log(`Disposable test database: ${database}`);
 // Roles are cluster-wide. Use a fresh container for each full suite invocation.
 file('supabase/tests/local-bootstrap.sql');
-for (const migration of ['migration.sql', 'migration_phase2.sql', 'migration_phase4.sql',
-  'migration_phase5_anti_abuse.sql', 'migration_storage_setup.sql',
-  'migration_phase6_credit_security.sql', 'migration_phase7_atomic_extraction.sql',
-  'migration_phase8_retire_device_fingerprinting.sql',
-  'migration_phase9_anti_abuse_foundation.sql',
-  'migration_phase10_identity_and_trial.sql',
-  'migration_phase11_extraction_access.sql',
-  'migration_phase12_stripe_payments.sql',
-  'migration_phase13_payment_and_admin_hardening.sql',
-  'migration_phase14_storage_abuse_controls.sql',
-  'migration_phase15_storage_upload_preflight.sql']) {
-  file(`supabase/${migration}`);
-  console.log(`Applied ${migration}`);
-}
+file('supabase/bootstrap.sql');
+console.log('Applied the complete application schema in one transaction');
 file('supabase/tests/credit_security.sql');
 file('supabase/tests/anti_abuse_foundation.sql');
 file('supabase/tests/identity_and_trial.sql');

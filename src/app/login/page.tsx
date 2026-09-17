@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Suspense } from "react";
+import Link from "next/link";
 import { BookOpen, Sparkles, Zap } from "lucide-react";
 
 function LoginContent() {
@@ -129,8 +130,11 @@ function LoginContent() {
           </p>
         )}
 
-        <p className="mt-8 text-xs text-neutral-500 font-bold uppercase tracking-widest">
-          By signing in, you agree to our Terms
+        <p className="mt-8 text-xs text-neutral-500 font-bold uppercase tracking-widest leading-relaxed">
+          By signing in, you agree to our{" "}
+          <Link className="underline hover:text-black" href="/legal/terms">Terms</Link>
+          {" "}and acknowledge our{" "}
+          <Link className="underline hover:text-black" href="/legal/privacy">Privacy Policy</Link>.
         </p>
       </div>
     </div>

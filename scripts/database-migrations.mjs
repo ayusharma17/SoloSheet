@@ -1,0 +1,17 @@
+export const databaseMigrations = [
+  "migration.sql",
+  "migration_phase2.sql",
+  "migration_phase4.sql",
+  "migration_phase5_anti_abuse.sql",
+  "migration_storage_setup.sql",
+  "migration_phase6_credit_security.sql",
+  "migration_phase7_atomic_extraction.sql",
+  "migration_phase8_retire_device_fingerprinting.sql",
+  "migration_phase9_anti_abuse_foundation.sql",
+  "migration_phase10_identity_and_trial.sql",
+  "migration_phase11_extraction_access.sql",
+  "migration_phase12_stripe_payments.sql",
+  "migration_phase13_payment_and_admin_hardening.sql",
+  "migration_phase14_storage_abuse_controls.sql",
+  "migration_phase15_storage_upload_preflight.sql",
+];

@@ -84,7 +84,6 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 - [x] Add a placeholder-only `.env.example` and a targeted `.gitignore` exception.
 - [x] Make schema setup reproducible; document historical migrations and add forward migrations for fixes instead of assuming scripts can be rerun unchanged.
 - [x] Add a `typecheck` script and CI for lint, type checking, production builds, and the new regression tests.
-- [ ] Make `debug-extraction.ts` use configurable paths and explicit test configuration; separate live integration checks from offline tests.
 - [x] Update PRDs and migration notes to distinguish implemented, deployed/verified, and planned features.
 
 ## P3 — Generation loading experience (low priority)

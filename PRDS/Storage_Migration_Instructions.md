@@ -1,4 +1,10 @@
-# **Storage Migration Deployment Instructions**
+# **Storage Migration Deployment Instructions (Historical)**
+
+> Do not use the isolated commands in this document for a fresh database. They
+> omit prerequisite and later hardening phases. Fresh installations must follow
+> [`docs/database-bootstrap.md`](../docs/database-bootstrap.md) and execute
+> `supabase/bootstrap.sql` in full as one transaction. The steps below are kept
+> only to explain the historical storage rollout for an existing deployment.
 
 ## **Overview**
 

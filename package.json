@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit --incremental false",
     "test:unit": "node tests/extraction-credits.test.mjs && node tests/extraction-validation.test.cjs && node tests/admin.test.mjs && node tests/account-holds.test.mjs && node tests/payments.test.mjs && node tests/stripe-webhook.test.mjs && node tests/http-security.test.mjs && node tests/storage-reservations.test.mjs",
     "test:database": "node scripts/test-local-database.mjs",
+    "fixtures:generate": "node scripts/generate-synthetic-fixtures.mjs",
+    "db:bootstrap:build": "node scripts/build-database-bootstrap.mjs",
     "check": "npm run lint && npm run typecheck && npm run test:unit"
   },
   "dependencies": {
