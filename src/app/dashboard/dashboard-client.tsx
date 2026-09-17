@@ -41,6 +41,8 @@ export default function DashboardClient({ user, credits, isAdmin, isAccountHeld,
   const router = useRouter();
   const supabase = createClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -51,6 +53,23 @@ export default function DashboardClient({ user, credits, isAdmin, isAccountHeld,
   const handleUploadSuccess = () => {
     setIsModalOpen(false);
     router.refresh();
+  };
+
+  const handleCheckout = async () => {
+    setCheckoutLoading(true);
+    setCheckoutError("");
+    try {
+      const response = await fetch("/api/stripe/checkout", { method: "POST" });
+      const payload: unknown = await response.json();
+      if (!response.ok || !payload || typeof payload !== "object" ||
+          typeof (payload as { url?: unknown }).url !== "string") {
+        throw new Error("Checkout unavailable");
+      }
+      window.location.assign((payload as { url: string }).url);
+    } catch {
+      setCheckoutError("Checkout is temporarily unavailable. Please try again.");
+      setCheckoutLoading(false);
+    }
   };
 
   const isOutOfCredits = !isAdmin && credits <= 0;
@@ -231,6 +250,21 @@ export default function DashboardClient({ user, credits, isAdmin, isAccountHeld,
                     <AlertCircle className="w-4 h-4" />
                     {isAccountHeld ? "System Halt: Account Under Review" : "System Halt: 0 Credits"}
                   </p>
+                  {isOutOfCredits && !isAccountHeld && (
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      disabled={checkoutLoading}
+                      className="w-full border-2 border-black bg-black px-5 py-3 text-sm font-bold uppercase tracking-widest text-white hover:bg-[#e60000] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {checkoutLoading ? "Opening Checkout…" : "Add 10 Credits — $3"}
+                    </button>
+                  )}
+                  {checkoutError && (
+                    <p className="max-w-xs text-xs font-bold text-[#e60000]" role="alert">
+                      {checkoutError}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <button

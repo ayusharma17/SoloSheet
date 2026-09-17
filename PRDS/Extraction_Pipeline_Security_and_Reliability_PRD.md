@@ -120,6 +120,7 @@ any non-disposable database:
 9. `supabase/migration_phase9_anti_abuse_foundation.sql`
 10. `supabase/migration_phase10_identity_and_trial.sql`
 11. `supabase/migration_phase11_extraction_access.sql`
+12. `supabase/migration_phase12_stripe_payments.sql`
 
 Phase 6 secures legacy credit functions and access policies. Phase 7 adds the
 durable `extraction_requests` reservation protocol. Phase 8 retires device
@@ -128,7 +129,8 @@ and Stripe ledger foundation. Phase 10 makes that administrator source canonical
 enforces verified educational-email eligibility, and grants the one-time trial.
 Phase 11 resolves administrator bypass and account holds inside the atomic
 extraction transaction. SQL files describe intended deployment; successful local
-execution does not prove hosted deployment.
+execution does not prove hosted deployment. Phase 12 adds pending purchase,
+idempotent Stripe fulfillment, and refund/dispute hold transactions.
 
 ### Server and client boundaries
 

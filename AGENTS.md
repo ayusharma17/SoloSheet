@@ -24,6 +24,8 @@ The stack is Next.js App Router, React, strict TypeScript, Tailwind CSS, Supabas
 - Validate external input at runtime; TypeScript assertions do not validate request bodies, stored JSON, or model responses. Prefer `unknown` plus narrowing over `any`.
 - Preserve the current visual language unless redesign is requested. Treat preview and printed output as separate paths that both need verification.
 - When product requirements conflict with implementation, state the discrepancy and avoid silently choosing a new business policy.
+- Always document non-obvious behavior, setup steps, migration order, environment switching, and operational recovery paths in the README or the most relevant `PRDS/` or `docs/` file. Do not assume a future agent or developer will infer them from code.
+- When introducing a non-standard or non-straightforward workflow that is likely to be reused, create or update a repository-local skill under `.agents/skills/<name>/SKILL.md` and validate it with the skill validator.
 
 ## Local commands and configuration
 
@@ -34,7 +36,7 @@ The stack is Next.js App Router, React, strict TypeScript, Tailwind CSS, Supabas
 - Production build: `npm run build`; serve the build with `npm start`.
 - There is currently no automated test script. Do not report `npm test` as a working check.
 
-Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `GOOGLE_API_KEY`. The optional model setting is `GEMINI_MODEL`. Administrator identity is database-managed; do not add an environment-based administrator list. Do not print or commit actual environment values, signed URLs, or credentials. The build uses `next/font/google` and may need network access to fetch fonts.
+Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, and `APP_URL`. The optional model setting is `GEMINI_MODEL`. Administrator identity is database-managed; do not add an environment-based administrator list. Do not print or commit actual environment values, signed URLs, Stripe secrets, or credentials. The build uses `next/font/google` and may need network access to fetch fonts.
 
 `debug-extraction.ts` makes real Gemini calls and attempts a database insert; it is not an offline test. Use mocks or fixtures for routine verification. Use live services only when the task authorizes that integration work.
 

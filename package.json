@@ -19,7 +19,8 @@
     "pdfjs-dist": "^3.11.174",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-latex-next": "^3.0.0"
+    "react-latex-next": "^3.0.0",
+    "stripe": "^22.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

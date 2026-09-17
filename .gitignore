@@ -45,6 +45,8 @@ client_secret*.json
 *.sqlite
 *.sqlite3
 *.db
+/supabase/.branches/
+/supabase/.temp/
 
 # vercel
 .vercel

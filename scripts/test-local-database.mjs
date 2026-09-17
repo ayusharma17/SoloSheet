@@ -22,13 +22,15 @@ for (const migration of ['migration.sql', 'migration_phase2.sql', 'migration_pha
   'migration_phase8_retire_device_fingerprinting.sql',
   'migration_phase9_anti_abuse_foundation.sql',
   'migration_phase10_identity_and_trial.sql',
-  'migration_phase11_extraction_access.sql']) {
+  'migration_phase11_extraction_access.sql',
+  'migration_phase12_stripe_payments.sql']) {
   file(`supabase/${migration}`);
   console.log(`Applied ${migration}`);
 }
 file('supabase/tests/credit_security.sql');
 file('supabase/tests/anti_abuse_foundation.sql');
 file('supabase/tests/identity_and_trial.sql');
+file('supabase/tests/stripe_payments.sql');
 sql("INSERT INTO auth.users(id,email) VALUES ('10000000-0000-4000-8000-000000000001','atomic@example.edu')");
 file('tests/atomic-credits.sql');
 console.log('Security, identity/trial, anti-abuse foundation, and atomic SQL regression assertions passed');
@@ -53,4 +55,35 @@ assert.equal(results.filter(status => status === 'reserved').length, 1);
 assert.equal(results.filter(status => status === 'no_credits').length, 7);
 assert.equal(sql("SELECT credits FROM public.profiles WHERE id='10000000-0000-4000-8000-000000000001'"), '0');
 console.log('Eight concurrent connections: exactly one reservation, seven rejected, balance zero');
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at)
+  VALUES ('40000000-0000-4000-8000-000000000001','payments-concurrent@example.edu',now());
+  UPDATE public.profiles SET credits=0
+  WHERE id='40000000-0000-4000-8000-000000000001';
+  SET request.jwt.claim.role='service_role';
+  SELECT public.create_pending_stripe_purchase(
+    '41000000-0000-4000-8000-000000000001',
+    '40000000-0000-4000-8000-000000000001',
+    'price_solosheet_test', false
+  );
+  SELECT public.attach_stripe_checkout_session(
+    '41000000-0000-4000-8000-000000000001',
+    '40000000-0000-4000-8000-000000000001',
+    'cs_test_concurrent'
+  );
+`);
+const paymentResults = await Promise.all(requestIds.map((_, i) => concurrentSql(`
+  SET request.jwt.claim.role='service_role';
+  SELECT public.fulfill_stripe_checkout(
+    'evt_checkout_concurrent_${i + 1}',
+    '41000000-0000-4000-8000-000000000001',
+    '40000000-0000-4000-8000-000000000001',
+    'cs_test_concurrent', 'pi_test_concurrent', 'price_solosheet_test',
+    300, 'usd', false, now()
+  )->>'status';
+`)));
+assert.equal(paymentResults.filter(status => status === 'fulfilled').length, 1);
+assert.equal(paymentResults.filter(status => status === 'already_fulfilled').length, 7);
+assert.equal(sql("SELECT credits FROM public.profiles WHERE id='40000000-0000-4000-8000-000000000001'"), '10');
+console.log('Eight concurrent webhook deliveries: exactly one grant, final balance ten');
 console.log('No deployed services were accessed. Remove the disposable container after review.');
