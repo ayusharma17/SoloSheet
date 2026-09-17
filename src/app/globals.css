@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────
+   Design Tokens — Swiss Minimalist
+   ────────────────────────────────────────── */
+:root {
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-elevated: #f4f4f5;
+  --border: #000000;
+  --border-hover: #e5e5e5;
+
+  --text-primary: #000000;
+  --text-secondary: #404040;
+  --text-muted: #737373;
+
+  /* Red accent common in Swiss design */
+  --accent-primary: #e60000; 
+}
+
+/* ──────────────────────────────────────────
+   Base Resets
+   ────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+/* ──────────────────────────────────────────
+   Swiss Minimalist Card
+   ────────────────────────────────────────── */
+.swiss-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+}
+
+.swiss-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+}
+
+/* ──────────────────────────────────────────
+   Animations
+   ────────────────────────────────────────── */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger delays */
+.animate-slide-up:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.animate-slide-up:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+/* ──────────────────────────────────────────
+   Scrollbar
+   ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+::-webkit-scrollbar-thumb {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
+/* ──────────────────────────────────────────
+   Print Styles — Cheat Sheet PDF Output
+   ────────────────────────────────────────── */
+@media print {
+  /* Reset everything for clean PDF output */
+  html, body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Exact Letter page size with zero browser margins */
+  @page {
+    size: letter;
+    margin: 0;
+  }
+
+  /* Hide all UI controls, headers, nav */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .physical-page {
+    break-inside: avoid;
+    break-after: page;
+    box-shadow: none !important;
+  }
+  .physical-page:last-child { break-after: auto; }
+  /* KaTeX should print in pure black */
+  .katex {
+    color: black !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   Sheet Page — On-Screen Preview
+   ────────────────────────────────────────── */
+.physical-page {
+  width: 8.5in;
+  height: 11in;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: white;
+  box-shadow: 8px 8px 0 rgba(0,0,0,0.1);
+}
+.sheet-page, .meta-guide { background: white; }
+.content-renderer .katex-display {
+  margin: 2px 0 !important;
+  overflow: visible;
+}
+.content-renderer .katex { font-size: inherit !important; }
+.meta-guide { overflow-wrap: anywhere; }
+.meta-guide-compact h2 { font-size: 12px !important; }
+.meta-guide-compact h3 { font-size: 10px !important; }
+.meta-guide-compact section { margin-bottom: 8px !important; }
+.meta-guide-compact > div:first-child { margin-bottom: 8px !important; }
