@@ -82,6 +82,31 @@ user next reserves a path, using the same transaction locks as Storage inserts.
 The scheduled Storage-API cleanup worker for users who never return remains an
 explicit post-MVP operational task in `TODO.md`.
 
+## Change per-user Storage quotas
+
+`public.course_material_upload_limits` is the authoritative Storage quota
+configuration. It is owner-managed and intentionally inaccessible to browser
+and service-role clients. The `course-materials` row controls
+`max_files_per_user` and `max_total_bytes_per_user`.
+
+Change both values in one database-owner transaction:
+
+```sql
+BEGIN;
+
+UPDATE public.course_material_upload_limits
+SET max_files_per_user = 10,
+    max_total_bytes_per_user = 200 * 1024 * 1024
+WHERE config_key = 'course-materials';
+
+COMMIT;
+```
+
+The configuration trigger synchronizes the private Storage bucket’s per-object
+byte ceiling, and new upload reservations read the same row under a transaction
+lock. Lowering a quota does not delete existing objects or reservations; it
+blocks new reservations until usage is back within the configured limit.
+
 ## Purge abandoned payment attempts
 
 Run `public.purge_abandoned_stripe_purchases` periodically from trusted

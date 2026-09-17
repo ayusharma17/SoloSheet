@@ -1,18 +1,60 @@
 -- ================================================================
 -- Migration: Supabase Storage Setup for Course Materials
--- Purpose: Enable large file uploads (up to 200MB) via Supabase Storage
+-- Purpose: Configure private course-material uploads and centrally managed quotas
 -- Date: 2026-03-12
 -- ================================================================
 
 -- ================================================================
--- STEP 1: Create the storage bucket
+-- STEP 1: Create the authoritative per-user storage quota configuration
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.course_material_upload_limits (
+  config_key text PRIMARY KEY CHECK (config_key = 'course-materials'),
+  max_files_per_user integer NOT NULL CHECK (max_files_per_user > 0),
+  max_total_bytes_per_user bigint NOT NULL CHECK (max_total_bytes_per_user > 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.course_material_upload_limits (
+  config_key, max_files_per_user, max_total_bytes_per_user
+) VALUES (
+  'course-materials', 10, 200 * 1024 * 1024
+) ON CONFLICT (config_key) DO NOTHING;
+
+ALTER TABLE public.course_material_upload_limits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.course_material_upload_limits
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.sync_course_material_upload_bucket_limit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  UPDATE storage.buckets
+  SET file_size_limit = NEW.max_total_bytes_per_user
+  WHERE id = 'course-materials';
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.sync_course_material_upload_bucket_limit()
+  FROM PUBLIC, anon, authenticated, service_role;
+DROP TRIGGER IF EXISTS sync_course_material_upload_bucket_limit
+  ON public.course_material_upload_limits;
+CREATE TRIGGER sync_course_material_upload_bucket_limit
+BEFORE INSERT OR UPDATE ON public.course_material_upload_limits
+FOR EACH ROW EXECUTE FUNCTION public.sync_course_material_upload_bucket_limit();
+
+-- ================================================================
+-- STEP 2: Create the storage bucket from the authoritative configuration
 -- ================================================================
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES (
+SELECT
   'course-materials',
   'course-materials',
   false, -- Private bucket (requires authentication)
-  209715200, -- 200MB in bytes
+  limits.max_total_bytes_per_user,
   ARRAY[
     'application/pdf',
     'image/png',
@@ -21,11 +63,15 @@ VALUES (
     'image/webp',
     'image/gif'
   ]
-)
-ON CONFLICT (id) DO NOTHING;
+FROM public.course_material_upload_limits AS limits
+WHERE limits.config_key = 'course-materials'
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- ================================================================
--- STEP 2: Row Level Security (RLS) Policies
+-- STEP 3: Row Level Security (RLS) Policies
 -- ================================================================
 
 -- Enable RLS on storage.objects (should already be enabled, but enforce it)
@@ -87,7 +133,7 @@ USING (
 );
 
 -- ================================================================
--- STEP 3: Create cleanup function for old files
+-- STEP 4: Create cleanup function for old files
 -- ================================================================
 -- This function deletes files older than 24 hours
 -- Run this via a cron job or manually as needed
@@ -105,7 +151,7 @@ END;
 $$;
 
 -- ================================================================
--- STEP 4: Schedule automatic cleanup (Supabase Pro feature)
+-- STEP 5: Schedule automatic cleanup (Supabase Pro feature)
 -- ================================================================
 -- If you have Supabase Pro, you can use pg_cron to schedule this:
 --

@@ -10,6 +10,17 @@ INSERT INTO auth.users (id, email) VALUES
 INSERT INTO public.admin_whitelist (email, reason) VALUES
   ('storage-one@example.edu', 'Storage cleanup administrator fixture');
 
+DO $$
+BEGIN
+  IF (SELECT max_files_per_user FROM public.course_material_upload_limits
+      WHERE config_key = 'course-materials') <> 10
+    OR (SELECT max_total_bytes_per_user FROM public.course_material_upload_limits
+      WHERE config_key = 'course-materials') <> 209715200 THEN
+    RAISE EXCEPTION 'Default storage quota configuration is incorrect';
+  END IF;
+END;
+$$;
+
 CREATE POLICY "Unexpected permissive deployment policy"
 ON storage.objects FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
@@ -120,6 +131,34 @@ END;
 $$;
 
 RESET ROLE;
+UPDATE public.course_material_upload_limits SET
+  max_files_per_user = 11,
+  max_total_bytes_per_user = 209715201
+WHERE config_key = 'course-materials';
+DO $$
+BEGIN
+  IF (SELECT file_size_limit FROM storage.buckets
+      WHERE id = 'course-materials') <> 209715201 THEN
+    RAISE EXCEPTION 'Storage bucket did not follow centralized byte configuration';
+  END IF;
+END;
+$$;
+
+SELECT set_config('request.jwt.claim.sub', 'e0000000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT public.reserve_course_material_upload(
+  'e0000000-0000-4000-8000-000000000001/e1000000-0000-4000-8000-000000000001/0000000b-0000-4000-8000-000000000001.pdf',
+  1
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', 'e0000000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT public.reserve_course_material_upload(
+  'e0000000-0000-4000-8000-000000000002/e1000000-0000-4000-8000-000000000002/00000003-0000-4000-8000-000000000002.pdf',
+  1
+);
+RESET ROLE;
+
 SELECT set_config('request.jwt.claim.sub', 'e0000000-0000-4000-8000-000000000004', true);
 SET LOCAL ROLE authenticated;
 SELECT public.reserve_course_material_upload(
@@ -185,11 +224,15 @@ BEGIN
     RAISE EXCEPTION 'Rejected resize changed reservation accounting';
   END IF;
   IF (SELECT count(*) FROM public.course_material_upload_reservations
-      WHERE user_id = 'e0000000-0000-4000-8000-000000000001') <> 10 THEN
+      WHERE user_id = 'e0000000-0000-4000-8000-000000000001') <>
+      (SELECT max_files_per_user FROM public.course_material_upload_limits
+       WHERE config_key = 'course-materials') THEN
     RAISE EXCEPTION 'Object reservation quota count is incorrect';
   END IF;
   IF (SELECT sum(size_bytes) FROM public.course_material_upload_reservations
-      WHERE user_id = 'e0000000-0000-4000-8000-000000000002') <> 209715200 THEN
+      WHERE user_id = 'e0000000-0000-4000-8000-000000000002') <>
+      (SELECT max_total_bytes_per_user FROM public.course_material_upload_limits
+       WHERE config_key = 'course-materials') THEN
     RAISE EXCEPTION 'Aggregate reservation bytes are incorrect';
   END IF;
   IF EXISTS (SELECT 1 FROM public.course_material_upload_reservations
@@ -216,6 +259,15 @@ BEGIN
   IF has_table_privilege('authenticated',
       'public.course_material_upload_reservations', 'SELECT') THEN
     RAISE EXCEPTION 'Upload reservations are visible to authenticated clients';
+  END IF;
+  IF has_table_privilege('authenticated',
+      'public.course_material_upload_limits', 'SELECT')
+    OR has_table_privilege('service_role',
+      'public.course_material_upload_limits', 'UPDATE') THEN
+    RAISE EXCEPTION 'Upload quota configuration has unsafe client privileges';
+  END IF;
+  IF to_regprocedure('public.cleanup_old_course_materials()') IS NOT NULL THEN
+    RAISE EXCEPTION 'Legacy direct Storage metadata cleanup remains callable';
   END IF;
 END;
 $$;

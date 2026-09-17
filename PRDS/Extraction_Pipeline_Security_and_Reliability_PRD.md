@@ -136,7 +136,10 @@ idempotent Stripe fulfillment, and refund/dispute hold transactions. Phase 13
 adds recoverable payment lifecycle states, out-of-order event reconciliation,
 current-identity administrator checks, and audited hold release. Phase 14 adds
 reservation-backed exact owned Storage paths plus per-user object-count and
-aggregate-byte quotas without writing Storage metadata directly.
+aggregate-byte quotas without writing Storage metadata directly. The quota
+values live in the protected `public.course_material_upload_limits` row created
+by the Storage setup migration; phase 14 reads that configuration instead of
+embedding product-policy values in reservation functions.
 Phase 14 intentionally fails if existing Storage metadata cannot be safely
 backfilled; inspect and clean incompatible objects through the Storage API first.
 

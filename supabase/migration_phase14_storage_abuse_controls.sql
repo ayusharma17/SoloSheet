@@ -5,9 +5,32 @@ BEGIN;
 
 LOCK TABLE storage.objects IN SHARE ROW EXCLUSIVE MODE;
 
+-- Retire the legacy metadata-only cleanup function. Stored bytes must be
+-- removed through the Storage API before reservations are released.
+DROP FUNCTION IF EXISTS public.cleanup_old_course_materials();
+
 UPDATE storage.buckets
-SET public = false, file_size_limit = 209715200
-WHERE id = 'course-materials';
+SET public = false,
+  file_size_limit = limits.max_total_bytes_per_user
+FROM public.course_material_upload_limits AS limits
+WHERE storage.buckets.id = 'course-materials'
+  AND limits.config_key = 'course-materials';
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM storage.buckets AS bucket
+    JOIN public.course_material_upload_limits AS limits
+      ON limits.config_key = 'course-materials'
+    WHERE bucket.id = 'course-materials'
+      AND bucket.file_size_limit = limits.max_total_bytes_per_user
+  ) THEN
+    RAISE EXCEPTION
+      'Course material upload limits are missing; apply migration_storage_setup.sql first'
+      USING ERRCODE = '55000';
+  END IF;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.is_course_material_storage_path(
   p_name text,
@@ -30,7 +53,7 @@ $$;
 CREATE TABLE public.course_material_upload_reservations (
   path text PRIMARY KEY CHECK (length(path) BETWEEN 1 AND 1024),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
-  size_bytes bigint NOT NULL CHECK (size_bytes BETWEEN 1 AND 209715200),
+  size_bytes bigint NOT NULL CHECK (size_bytes > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (public.is_course_material_storage_path(path, user_id))
@@ -44,7 +67,18 @@ REVOKE ALL ON public.course_material_upload_reservations
 -- Fail rather than silently omitting incompatible deployed objects. Operators
 -- must remove invalid objects through the Storage API before retrying.
 DO $$
+DECLARE
+  configured_max_files integer;
+  configured_max_total_bytes bigint;
 BEGIN
+  SELECT max_files_per_user, max_total_bytes_per_user
+  INTO configured_max_files, configured_max_total_bytes
+  FROM public.course_material_upload_limits
+  WHERE config_key = 'course-materials';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Course material upload limits are missing'
+      USING ERRCODE = '55000';
+  END IF;
   IF EXISTS (
     SELECT 1 FROM storage.objects AS object
     WHERE object.bucket_id = 'course-materials'
@@ -54,7 +88,7 @@ BEGIN
           '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|png|jpg|jpeg|webp|gif)$'
         OR object.metadata->>'size' IS NULL
         OR object.metadata->>'size' !~ '^[0-9]+$'
-        OR (object.metadata->>'size')::numeric NOT BETWEEN 1 AND 209715200
+        OR (object.metadata->>'size')::numeric NOT BETWEEN 1 AND configured_max_total_bytes
       )
   ) THEN
     RAISE EXCEPTION
@@ -66,8 +100,8 @@ BEGIN
     SELECT 1 FROM storage.objects AS object
     WHERE object.bucket_id = 'course-materials'
     GROUP BY split_part(object.name, '/', 1)
-    HAVING count(*) > 10
-      OR sum((object.metadata->>'size')::bigint) > 209715200
+    HAVING count(*) > configured_max_files
+      OR sum((object.metadata->>'size')::bigint) > configured_max_total_bytes
   ) THEN
     RAISE EXCEPTION 'Existing course material usage exceeds quota'
       USING ERRCODE = '23514';
@@ -100,15 +134,30 @@ DECLARE
   reserved_bytes bigint;
   stored_size bigint;
   stale_path text;
+  configured_max_files integer;
+  configured_max_total_bytes bigint;
   existing_reservation public.course_material_upload_reservations%ROWTYPE;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'authenticated' OR caller_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required' USING ERRCODE = '42501';
   END IF;
-  IF p_path IS NULL OR p_size_bytes IS NULL
-    OR p_size_bytes NOT BETWEEN 1 AND 209715200
+  IF p_path IS NULL OR p_size_bytes IS NULL OR p_size_bytes < 1
     OR NOT public.is_course_material_storage_path(p_path, caller_id) THEN
     RAISE EXCEPTION 'Invalid upload reservation' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT max_files_per_user, max_total_bytes_per_user
+  INTO configured_max_files, configured_max_total_bytes
+  FROM public.course_material_upload_limits
+  WHERE config_key = 'course-materials'
+  FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Course material upload limits are unavailable'
+      USING ERRCODE = '55000';
+  END IF;
+  IF p_size_bytes > configured_max_total_bytes THEN
+    RAISE EXCEPTION 'Course material storage quota exceeded'
+      USING ERRCODE = '23514';
   END IF;
 
   -- The profile row serializes all reservations for this user. Each PL/pgSQL
@@ -178,7 +227,8 @@ BEGIN
   INTO reserved_count, reserved_bytes
   FROM public.course_material_upload_reservations
   WHERE user_id = caller_id AND path <> p_path;
-  IF reserved_count >= 10 OR reserved_bytes + p_size_bytes > 209715200 THEN
+  IF reserved_count >= configured_max_files
+    OR reserved_bytes + p_size_bytes > configured_max_total_bytes THEN
     RAISE EXCEPTION 'Course material storage quota exceeded'
       USING ERRCODE = '23514';
   END IF;
@@ -210,7 +260,8 @@ BEGIN
   IF auth.role() IS DISTINCT FROM 'authenticated' OR caller_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required' USING ERRCODE = '42501';
   END IF;
-  IF p_paths IS NULL OR cardinality(p_paths) NOT BETWEEN 1 AND 10
+  -- This is a request-shape safety bound, not the configurable storage quota.
+  IF p_paths IS NULL OR cardinality(p_paths) NOT BETWEEN 1 AND 100
     OR cardinality(p_paths) <> (
       SELECT count(DISTINCT value) FROM unnest(p_paths) AS value
     ) THEN
