@@ -57,19 +57,20 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 
 ## P2 — Anti-abuse and payments
 
-- [ ] Treat `.edu` as an eligibility signal, not proof of one active student. Monitor aggregate signup and extraction metrics, then evaluate privacy-minimized, reversible controls only if free-credit abuse becomes measurable.
-- [ ] Reconcile the anti-abuse PRD with SQL before implementing policy changes: review holds versus immediate credit removal, trial allocation, and payment-provider naming.
-- [ ] Consolidate administrator identity across environment configuration, SQL, and UI credit behavior.
+- [x] Treat `.edu` as an eligibility signal, not proof of one active student.
+- [ ] After launch, monitor privacy-minimized aggregate signup and extraction metrics and evaluate additional controls only if abuse becomes measurable.
+- [x] Reconcile the anti-abuse PRD with SQL before implementing policy changes: review holds versus immediate credit removal, trial allocation, and payment-provider naming.
+- [x] Consolidate administrator identity across environment configuration, SQL, and UI credit behavior.
 - [ ] Complete and verify educational-email eligibility and trial allocation through the actual signup flow.
-- [ ] Implement Stripe Checkout and credit purchases according to the current PRD, passing the authenticated Supabase user ID as the Checkout Session's `client_reference_id`.
-- [ ] Add authenticated payment fulfillment with verified webhook signatures, duplicate-event protection, server-controlled credit amounts, and the agreed refund handling.
-- [ ] Add tests for signup eligibility, administrator exceptions, and duplicate or invalid payment events.
+- [x] Implement Stripe Checkout and credit purchases according to the current PRD, passing the authenticated Supabase user ID as the Checkout Session's `client_reference_id`.
+- [x] Add authenticated payment fulfillment with verified webhook signatures, duplicate-event protection, server-controlled credit amounts, and the agreed refund handling.
+- [x] Add tests for signup eligibility, administrator exceptions, and duplicate or invalid payment events.
 
 ## P2 — Developer setup and maintenance
 
 - [ ] Fix the existing explicit `any` lint error in `src/app/api/extract/route.ts` and unused `data` warning in `src/lib/supabase/storage-helpers.ts`.
 - [ ] Expand README with local setup, environment variable names, OAuth configuration, migration order, deployment steps, and troubleshooting.
-- [ ] Add a placeholder-only `.env.example` and a targeted `.gitignore` exception.
+- [x] Add a placeholder-only `.env.example` and a targeted `.gitignore` exception.
 - [ ] Make schema setup reproducible; document historical migrations and add forward migrations for fixes instead of assuming scripts can be rerun unchanged.
 - [ ] Add a `typecheck` script and CI for lint, type checking, production builds, and the new regression tests.
 - [ ] Make `debug-extraction.ts` use configurable paths and explicit test configuration; separate live integration checks from offline tests.

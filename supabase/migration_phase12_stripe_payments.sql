@@ -28,6 +28,12 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
   END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.account_holds
+    WHERE user_id = p_user_id AND status = 'active'
+  ) THEN
+    RETURN jsonb_build_object('status', 'held');
+  END IF;
   INSERT INTO public.stripe_purchases (
     id, user_id, checkout_session_id, price_id, amount_total, currency,
     credit_amount, quantity, status, livemode

@@ -50,7 +50,7 @@ export default function HomePage() {
               <ArrowRight className="w-5 h-5" />
             </Link>
             <span className="text-sm font-bold uppercase tracking-widest text-neutral-500">
-              3 free credits <span className="text-black mx-2">•</span> No card required
+              1 free credit <span className="text-black mx-2">•</span> No card required
             </span>
           </div>
         </section>

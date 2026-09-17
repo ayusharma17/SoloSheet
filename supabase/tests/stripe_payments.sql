@@ -58,15 +58,6 @@ BEGIN
 END;
 $$;
 
-SELECT public.record_stripe_account_hold(
-  'evt_refund_one', 'charge.refunded', 'pi_solosheet_one',
-  'ch_solosheet_one', false, now()
-);
-SELECT public.record_stripe_account_hold(
-  'evt_refund_one', 'charge.refunded', 'pi_solosheet_one',
-  'ch_solosheet_one', false, now()
-);
-
 SELECT public.create_pending_stripe_purchase(
   'd1000000-0000-4000-8000-000000000002',
   'd0000000-0000-4000-8000-000000000001',
@@ -84,6 +75,34 @@ SELECT public.fulfill_stripe_checkout(
   'cs_test_solosheet_two', 'pi_solosheet_two', 'price_solosheet_test',
   300, 'usd', false, now()
 );
+
+SELECT public.record_stripe_account_hold(
+  'evt_refund_one', 'charge.refunded', 'pi_solosheet_one',
+  'ch_solosheet_one', false, now()
+);
+SELECT public.record_stripe_account_hold(
+  'evt_refund_one', 'charge.refunded', 'pi_solosheet_one',
+  'ch_solosheet_one', false, now()
+);
+
+DO $$
+DECLARE result jsonb;
+BEGIN
+  result := public.create_pending_stripe_purchase(
+    'd1000000-0000-4000-8000-000000000003',
+    'd0000000-0000-4000-8000-000000000001',
+    'price_solosheet_test', false
+  );
+  ASSERT result->>'status' = 'held', 'held account was allowed to start Checkout';
+  IF EXISTS (
+    SELECT 1 FROM public.stripe_purchases
+    WHERE id = 'd1000000-0000-4000-8000-000000000003'
+  ) THEN
+    RAISE EXCEPTION 'held account created a pending purchase';
+  END IF;
+END;
+$$;
+
 SELECT public.record_stripe_account_hold(
   'evt_dispute_created', 'charge.dispute.created', 'pi_solosheet_two',
   'dp_solosheet_two', false, now()

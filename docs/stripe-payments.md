@@ -36,7 +36,8 @@ paid purchase do not grant again.
 
 Refunds and disputes retain the existing balance, record the financial event,
 and place the account under review. A lost dispute upgrades the existing dispute
-hold to `chargeback`. Holds are not automatically released.
+hold to `chargeback`. Holds are not automatically released. An account with an
+active hold cannot start a new Checkout Session or extraction.
 
 ## Local test mode
 
@@ -52,3 +53,7 @@ balance increases by exactly 10 once, and repeated delivery of the same event
 does not change the balance. Exercise a test refund and dispute separately.
 
 Do not use live mode or real payment details for routine verification.
+
+The Stripe CLI is optional. It is only required for forwarding sandbox events to
+localhost. For a deployed test environment, register its public HTTPS webhook
+URL in Stripe and use that endpoint's signing secret instead.

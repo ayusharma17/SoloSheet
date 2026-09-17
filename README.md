@@ -11,6 +11,10 @@ npx supabase start
 supabase status -o env
 ```
 
+Copy `.env.example` to `.env.local`, then replace its placeholders with the
+matching local or hosted values. Never mix credentials from different Supabase
+targets.
+
 Run `supabase status -o env` and copy the values from its output into `.env.local`.
 Use `API_URL` for the URL, `ANON_KEY` for the anon key, and `SERVICE_ROLE_KEY`
 for the service-role key:
@@ -47,6 +51,8 @@ USD price for 10 credits. Subscribe the webhook endpoint
 `/api/webhooks/stripe` to `checkout.session.completed`, `charge.refunded`,
 `charge.dispute.created`, and `charge.dispute.closed`. See
 [docs/stripe-payments.md](docs/stripe-payments.md) before test-mode verification.
+The Stripe CLI is optional and is needed only to forward sandbox webhooks to a
+localhost server; a deployed HTTPS endpoint receives webhooks directly.
 
 Run automated checks:
 

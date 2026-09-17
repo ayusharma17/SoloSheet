@@ -62,9 +62,10 @@ The platform operates on a single hook-and-convert business model:
 - **Pricing:** Users purchase "top-ups" at a strict rate of **$3.00 for 10 sheets**.
 - **Checkout Session:** When a user hits zero credits and clicks "Add Credits", the Next.js API calls Stripe to create a Checkout Session for the pre-defined Price ID. CRITICAL: The API passes the Supabase `user_id` into Stripe's `client_reference_id` parameter.
 - **Fulfillment (Webhooks):**
-  - A secure endpoint (`/api/webhooks/stripe`) listens for the `checkout.session.completed` event.
-  - It extracts the `client_reference_id`.
-  - Using the Supabase Service Role Key (to bypass RLS), it calls the `add_credits` SQL RPC method, safely incrementing the user's balance by 10.
+  - A secure endpoint (`/api/webhooks/stripe`) verifies Stripe's signature against the untouched request body before accepting payment or review events.
+  - It matches the Checkout Session, authenticated user reference, configured package, amount, currency, and environment to a server-created pending purchase.
+  - A service-only database transaction records the unique event and payment identifiers and increments the balance by exactly 10 once, including under retries or concurrent deliveries.
+  - Refunds, disputes, and chargebacks preserve the current balance but place the account under an auditable review hold that blocks Checkout and extraction.
 
 ---
 

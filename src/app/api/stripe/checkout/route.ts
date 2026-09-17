@@ -28,12 +28,18 @@ export async function POST() {
   const purchaseId = randomUUID();
   const rpc = privileged.rpc.bind(privileged);
   try {
-    await paymentCall(rpc, "create_pending_stripe_purchase", {
+    const pending = await paymentCall(rpc, "create_pending_stripe_purchase", {
       p_purchase_id: purchaseId,
       p_user_id: user.id,
       p_price_id: config.priceId,
       p_livemode: config.livemode,
     });
+    if (pending.status === "held") {
+      return NextResponse.json(
+        { error: "This account is under review." },
+        { status: 423 },
+      );
+    }
 
     const stripe = createStripeClient(config.secretKey);
     const session = await stripe.checkout.sessions.create({

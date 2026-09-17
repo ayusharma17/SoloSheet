@@ -26,18 +26,24 @@ interface CourseMaterial {
 
 interface DashboardClientProps {
   user: {
-    id: string;
-    email: string;
     fullName: string;
     avatarUrl: string;
   };
   credits: number;
   isAdmin: boolean;
   isAccountHeld: boolean;
+  checkoutStatus: "success" | "canceled" | null;
   materials: CourseMaterial[];
 }
 
-export default function DashboardClient({ user, credits, isAdmin, isAccountHeld, materials }: DashboardClientProps) {
+export default function DashboardClient({
+  user,
+  credits,
+  isAdmin,
+  isAccountHeld,
+  checkoutStatus,
+  materials,
+}: DashboardClientProps) {
   const router = useRouter();
   const supabase = createClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -155,6 +161,19 @@ export default function DashboardClient({ user, credits, isAdmin, isAccountHeld,
           </p>
         </div>
 
+        {checkoutStatus ? (
+          <div
+            className={`border-[3px] border-black p-4 text-sm font-bold uppercase tracking-wider ${
+              checkoutStatus === "success" ? "bg-green-100" : "bg-neutral-100"
+            }`}
+            role="status"
+          >
+            {checkoutStatus === "success"
+              ? "Payment submitted. Credits appear after Stripe confirms the payment. Refresh if the balance has not updated yet."
+              : "Checkout canceled. No credits were added and you were not charged."}
+          </div>
+        ) : null}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 border-b-[3px] border-black pb-12">
           {/* Credits Card */}
@@ -175,7 +194,7 @@ export default function DashboardClient({ user, credits, isAdmin, isAccountHeld,
             <div className="mt-6 border-2 border-black h-3 w-full bg-white relative">
               <div
                 className="absolute top-0 left-0 h-full bg-[#e60000] transition-all duration-500"
-                style={{ width: isAdmin ? "100%" : `${Math.min((credits / 3) * 100, 100)}%` }}
+                style={{ width: isAdmin ? "100%" : `${Math.min((credits / 10) * 100, 100)}%` }}
               />
             </div>
           </div>

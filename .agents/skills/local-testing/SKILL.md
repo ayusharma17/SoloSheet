@@ -9,6 +9,20 @@ Use this skill when validating SoloSheet changes on a developer machine. Keep al
 data local and do not call hosted Supabase, Gemini, payment providers, or real
 student accounts unless the user explicitly authorizes that separate operation.
 
+## Choose the Supabase target first
+
+Next.js loads `.env.local` before `.env`. Inspect both filenames without printing
+values and choose one target before starting the app:
+
+- **Hosted mode:** keep hosted URL, anon key, and service-role key in `.env.local`,
+  set `NEXT_PUBLIC_ENABLE_TEST_AUTH=false`, and run only `npm run dev`.
+- **Local mode:** run `npx supabase start`, map `API_URL`, `ANON_KEY`, and
+  `SERVICE_ROLE_KEY` from `supabase status -o env` into `.env.local`, set
+  `NEXT_PUBLIC_ENABLE_TEST_AUTH=true`, and run both Supabase and Next.js.
+
+Never mix local Supabase keys with a hosted URL. Save the inactive env file under a
+clear name such as `.env.local.local-backup`; restart Next.js after switching.
+
 ## Environment setup
 
 1. Inspect `git status`, `.env.local`, `supabase/config.toml`, and the repository
