@@ -293,17 +293,42 @@ ALTER TABLE public.stripe_purchases
 
 DO $$
 DECLARE
-  constraint_name text;
+  status_definition text;
+  payment_state_definition text;
 BEGIN
-  FOR constraint_name IN
-    SELECT c.conname
-    FROM pg_constraint c
-    WHERE c.conrelid = 'public.stripe_purchases'::regclass
-      AND c.contype = 'c'
-      AND pg_get_constraintdef(c.oid) LIKE '%status%'
-  LOOP
-    EXECUTE format('ALTER TABLE public.stripe_purchases DROP CONSTRAINT %I', constraint_name);
-  END LOOP;
+  SELECT pg_get_constraintdef(oid) INTO status_definition
+  FROM pg_constraint
+  WHERE conrelid = 'public.stripe_purchases'::regclass
+    AND conname = 'stripe_purchases_status_check' AND contype = 'c';
+  SELECT pg_get_constraintdef(oid) INTO payment_state_definition
+  FROM pg_constraint
+  WHERE conrelid = 'public.stripe_purchases'::regclass
+    AND conname = 'stripe_purchases_check' AND contype = 'c';
+  IF status_definition IS DISTINCT FROM
+      'CHECK ((status = ANY (ARRAY[''pending''::text, ''paid''::text, ''refunded''::text, ''disputed''::text, ''chargeback''::text])))'
+    OR payment_state_definition IS DISTINCT FROM
+      'CHECK ((((status = ''pending''::text) AND (paid_at IS NULL)) OR ((status <> ''pending''::text) AND (paid_at IS NOT NULL))))' THEN
+    RAISE EXCEPTION
+      'Stripe purchase constraints differ from the phase 9 baseline; review before phase 13'
+      USING ERRCODE = '55000';
+  END IF;
+END;
+$$;
+ALTER TABLE public.stripe_purchases
+  DROP CONSTRAINT IF EXISTS stripe_purchases_status_check,
+  DROP CONSTRAINT IF EXISTS stripe_purchases_check;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint AS constraint_row
+    WHERE constraint_row.conrelid = 'public.stripe_purchases'::regclass
+      AND constraint_row.contype = 'c'
+      AND pg_get_constraintdef(constraint_row.oid) LIKE '%status%'
+  ) THEN
+    RAISE EXCEPTION
+      'Unexpected custom stripe_purchases status constraint; review it before phase 13'
+      USING ERRCODE = '55000';
+  END IF;
 END;
 $$;
 
@@ -346,17 +371,34 @@ CREATE INDEX IF NOT EXISTS stripe_purchases_pending_expiry_idx
 -- matching paid Checkout attaches its PaymentIntent.
 DO $$
 DECLARE
-  constraint_name text;
+  outcome_definition text;
 BEGIN
-  FOR constraint_name IN
-    SELECT c.conname
-    FROM pg_constraint c
-    WHERE c.conrelid = 'public.stripe_webhook_events'::regclass
-      AND c.contype = 'c'
-      AND pg_get_constraintdef(c.oid) LIKE '%outcome%'
-  LOOP
-    EXECUTE format('ALTER TABLE public.stripe_webhook_events DROP CONSTRAINT %I', constraint_name);
-  END LOOP;
+  SELECT pg_get_constraintdef(oid) INTO outcome_definition
+  FROM pg_constraint
+  WHERE conrelid = 'public.stripe_webhook_events'::regclass
+    AND conname = 'stripe_webhook_events_outcome_check' AND contype = 'c';
+  IF outcome_definition IS DISTINCT FROM
+      'CHECK ((outcome = ANY (ARRAY[''processed''::text, ''ignored''::text])))' THEN
+    RAISE EXCEPTION
+      'Webhook outcome constraint differs from the phase 9 baseline; review before phase 13'
+      USING ERRCODE = '55000';
+  END IF;
+END;
+$$;
+ALTER TABLE public.stripe_webhook_events
+  DROP CONSTRAINT IF EXISTS stripe_webhook_events_outcome_check;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint AS constraint_row
+    WHERE constraint_row.conrelid = 'public.stripe_webhook_events'::regclass
+      AND constraint_row.contype = 'c'
+      AND pg_get_constraintdef(constraint_row.oid) LIKE '%outcome%'
+  ) THEN
+    RAISE EXCEPTION
+      'Unexpected custom webhook outcome constraint; review it before phase 13'
+      USING ERRCODE = '55000';
+  END IF;
 END;
 $$;
 ALTER TABLE public.stripe_webhook_events

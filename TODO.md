@@ -22,7 +22,7 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 
 - [ ] Share file-count, total-size, directive-length, and page-count limits between the upload UI and API; reject invalid selections before uploading.
 - [ ] Fix retry state so deleted objects or expired signed URLs are never reused as successful uploads.
-- [ ] Use unique storage object names to support files with identical filenames.
+- [x] Use unique storage object names to support files with identical filenames.
 - [ ] Track upload sessions and clean up partial uploads, removed files, abandoned sessions, and download failures with a defined retry retention window.
 - [ ] Replace direct SQL deletion of `storage.objects` with scheduled deletion through the Storage API.
 - [ ] Move long extraction into durable jobs with queued/running/succeeded/failed states, per-file progress, an overall deadline, and recovery after refresh or worker failure.

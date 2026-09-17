@@ -3,7 +3,16 @@ const JOURNAL_KEY = "solosheet-upload-cleanup-v1";
 const ACTIVE_TTL = 24 * 60 * 60 * 1000;
 type Entry = { path: string; after: number };
 export class UploadCleanupJournal {
-  constructor(private storage: Pick<Storage, "getItem" | "setItem">, private now = () => Date.now()) {}
+  private storage: Pick<Storage, "getItem" | "setItem">;
+  private now: () => number;
+
+  constructor(
+    storage: Pick<Storage, "getItem" | "setItem">,
+    now: () => number = () => Date.now(),
+  ) {
+    this.storage = storage;
+    this.now = now;
+  }
   private read(): Entry[] {
     try {
       const value: unknown = JSON.parse(this.storage.getItem(JOURNAL_KEY) || "[]");
@@ -19,11 +28,19 @@ export class UploadCleanupJournal {
     this.write([...this.read().filter(e => e.path !== path), { path, after: this.now() + (active ? ACTIVE_TTL : 0) }]);
   }
   async flush(userId: string, remove: (paths: string[]) => Promise<boolean>) {
-    const paths = this.read().filter(e => e.after <= this.now() && e.path.split("/")[0] === userId).map(e => e.path);
+    const paths = [...new Set(this.read()
+      .filter(e => e.after <= this.now() && e.path.split("/")[0] === userId)
+      .map(e => e.path))];
     if (!paths.length) return;
-    try {
-      if (await remove(paths)) this.write(this.read().filter(e => !paths.includes(e.path) || e.after > this.now()));
-    } catch { /* Keep failures for next mount / online event. */ }
+    for (let index = 0; index < paths.length; index += 10) {
+      const batch = paths.slice(index, index + 10);
+      try {
+        if (await remove(batch)) {
+          this.write(this.read().filter(e =>
+            !batch.includes(e.path) || e.after > this.now()));
+        }
+      } catch { /* Keep this failed batch for next mount / online event. */ }
+    }
   }
 }
 

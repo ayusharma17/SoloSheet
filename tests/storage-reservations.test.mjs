@@ -6,6 +6,7 @@ import {
   createCourseUploadPath,
   uploadCourseFile,
 } from "../src/lib/supabase/storage-helpers.ts";
+import { UploadCleanupJournal } from "../src/lib/upload-lifecycle.ts";
 
 function mockClient() {
   const calls = [];
@@ -103,4 +104,23 @@ test("cleanup deletes objects before releasing their quota reservations", async 
     "remove",
     "release_course_material_uploads",
   ]);
+});
+
+test("cleanup journal flushes more than ten due paths in bounded batches", async () => {
+  let stored = "[]";
+  const storage = {
+    getItem: () => stored,
+    setItem: (_key, value) => { stored = value; },
+  };
+  const journal = new UploadCleanupJournal(storage, () => 1000);
+  for (let index = 0; index < 12; index += 1) {
+    journal.track(`user-one/session/${index}.pdf`, false);
+  }
+  const batches = [];
+  await journal.flush("user-one", async paths => {
+    batches.push(paths);
+    return true;
+  });
+  assert.deepEqual(batches.map(batch => batch.length), [10, 2]);
+  assert.deepEqual(JSON.parse(stored), []);
 });

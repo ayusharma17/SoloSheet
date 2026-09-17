@@ -53,7 +53,7 @@ export default function DashboardClient({
   const [checkoutError, setCheckoutError] = useState("");
   const [currentCredits, setCurrentCredits] = useState(credits);
   const [currentHeld, setCurrentHeld] = useState(isAccountHeld);
-  const [purchaseState, setPurchaseState] = useState<"confirming" | "paid" | "held" | "unconfirmed">(
+  const [purchaseState, setPurchaseState] = useState<"confirming" | "paid" | "held" | "reversed" | "unconfirmed">(
     checkoutStatus === "success" && checkoutSessionId ? "confirming" : "unconfirmed",
   );
 
@@ -94,7 +94,7 @@ export default function DashboardClient({
             return;
           }
           if (["refunded", "disputed", "chargeback"].includes(String(status))) {
-            setPurchaseState("held");
+            setPurchaseState("reversed");
             return;
           }
           if (["failed", "expired", "canceled"].includes(String(status))) {
@@ -240,7 +240,11 @@ export default function DashboardClient({
         {checkoutStatus ? (
           <div
             className={`border-[3px] border-black p-4 text-sm font-bold uppercase tracking-wider ${
-              checkoutStatus === "success" ? "bg-green-100" : "bg-neutral-100"
+              checkoutStatus !== "success" ? "bg-neutral-100"
+                : purchaseState === "paid" ? "bg-green-100"
+                  : purchaseState === "held" ? "bg-red-100"
+                    : purchaseState === "reversed" ? "bg-amber-100"
+                      : "bg-neutral-100"
             }`}
             role="status"
           >
@@ -249,6 +253,8 @@ export default function DashboardClient({
                 ? "Payment confirmed. 10 credits were added to your account."
                 : purchaseState === "held"
                   ? "Payment was recorded, but this account is under review. Contact support before using credits."
+                : purchaseState === "reversed"
+                  ? "This payment was later refunded or reversed. The account is not currently under review."
                 : purchaseState === "confirming"
                   ? "Payment submitted. Confirming your credits…"
                   : "Payment could not be confirmed yet. Your card will never grant credits without Stripe confirmation."

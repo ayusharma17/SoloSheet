@@ -1,5 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { copyResponseCookies } from "@/lib/response-cookies";
+
+export function redirectWithResponseCookies(url: URL, source: NextResponse) {
+  const redirect = NextResponse.redirect(url);
+  copyResponseCookies(source.cookies.getAll(), cookie => redirect.cookies.set(cookie));
+  return redirect;
+}
 
 export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/" && request.nextUrl.searchParams.has("code")) {
@@ -31,12 +38,12 @@ export async function proxy(request: NextRequest) {
   if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return redirectWithResponseCookies(url, supabaseResponse);
   }
   if (user && request.nextUrl.pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    return redirectWithResponseCookies(url, supabaseResponse);
   }
   return supabaseResponse;
 }

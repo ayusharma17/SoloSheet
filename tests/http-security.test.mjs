@@ -8,6 +8,7 @@ import {
 } from "../src/lib/http-security.ts";
 import { readTextBody, RequestBodyError } from "../src/lib/request-body.ts";
 import { isExpectedStripePrice } from "../src/lib/stripe.ts";
+import { copyResponseCookies } from "../src/lib/response-cookies.ts";
 
 function withEnvironment(values, callback) {
   const previous = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
@@ -66,6 +67,23 @@ test("development redirects preserve an equivalent loopback cookie host", () => 
       "http://localhost:3000",
     ), "http://localhost:3000");
   });
+});
+
+test("proxy redirects preserve refreshed Supabase response cookies", () => {
+  const refreshed = {
+    name: "sb-refresh-token",
+    value: "rotated",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    path: "/",
+  };
+  const copied = [];
+  copyResponseCookies(
+    [refreshed],
+    cookie => copied.push(cookie),
+  );
+  assert.deepEqual(copied, [refreshed]);
 });
 
 test("bounded request reader rejects declared and streamed overflow", async () => {

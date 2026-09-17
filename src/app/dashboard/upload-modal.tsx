@@ -409,6 +409,13 @@ export default function UploadModal({
     }
   }, [locked, onClose, resetState]);
 
+  const handleRecoveryClose = useCallback(() => {
+    if (isProcessing || !retryPending) return;
+    // Preserve the exact request ID, payload, and files. Reopening the modal
+    // must retry the ambiguous request idempotently rather than spend again.
+    onClose();
+  }, [isProcessing, onClose, retryPending]);
+
   useEffect(() => {
     if (!isOpen) return;
     previouslyFocused.current = document.activeElement instanceof HTMLElement
@@ -693,24 +700,35 @@ export default function UploadModal({
             <span className="text-neutral-500">({isAdmin ? "Unlimited" : `${credits} left`})</span>
           </p>
 
-          <button
-            onClick={handleSubmit}
-            disabled={isProcessing || files.length === 0 || !courseName.trim()}
-            aria-describedby={error ? "upload-error" : undefined}
-            className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {processingStatus}
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                {retryPending ? "Retry request" : "Generate"}
-              </>
+          <div className="flex items-center gap-3">
+            {retryPending && !isProcessing && (
+              <button
+                type="button"
+                onClick={handleRecoveryClose}
+                className="px-4 py-3 border-2 border-black bg-white text-black font-bold text-xs uppercase tracking-wider hover:bg-neutral-100"
+              >
+                Close and check later
+              </button>
             )}
-          </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isProcessing || files.length === 0 || !courseName.trim()}
+              aria-describedby={error ? "upload-error" : undefined}
+              className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {processingStatus}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  {retryPending ? "Retry request" : "Generate"}
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
