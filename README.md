@@ -3,6 +3,8 @@
 SoloSheet turns uploaded lecture PDFs and images into dense, printable study
 sheets. The application uses Next.js, Supabase, Google Gemini, and Stripe.
 
+Production site: [trysolosheet.com](https://trysolosheet.com)
+
 This repository is licensed under the [MIT License](LICENSE). Please read the
 [security policy](SECURITY.md) before reporting a vulnerability and
 [contribution guide](CONTRIBUTING.md) before opening a pull request.
