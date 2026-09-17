@@ -19,6 +19,8 @@ import {
   validateFileForUpload,
   generateUploadSessionId,
   cleanupUploadedFiles,
+  cleanupStaleCourseUploads,
+  createCourseUploadPath,
   UploadStorageError,
 } from "@/lib/supabase/storage-helpers";
 
@@ -62,6 +64,8 @@ export default function UploadModal({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
   const busy = useRef(false);
   const attempt = useRef<ExtractionPayload | null>(null);
   const tracked = useRef(new Set<string>());
@@ -69,16 +73,17 @@ export default function UploadModal({
   const journal = useRef<UploadCleanupJournal | null>(null);
   const [retryPending, setRetryPending] = useState(false);
   const locked = isProcessing || retryPending;
-  const flushCleanup = useCallback(async () => {
+  const flushCleanup = useCallback(async (allowWhileBusy = false) => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    if (!allowWhileBusy && busy.current) return;
     if (user) await journal.current?.flush(user.id, paths => cleanupUploadedFiles(supabase, paths));
   }, []);
   const abandon = useCallback(() => {
     // Unknown outcomes may still be processing. Retain their inputs for 24 hours.
     for (const path of tracked.current) journal.current?.track(path, attempt.current !== null);
     tracked.current.clear();
-    void flushCleanup();
+    void flushCleanup(true);
   }, [flushCleanup]);
   const discardTrackedUploads = useCallback(async () => {
     const paths = [...tracked.current];
@@ -87,7 +92,7 @@ export default function UploadModal({
     // immediately. The journal remains as a retry queue if the removal fails.
     for (const path of paths) journal.current?.track(path, false);
     tracked.current.clear();
-    await flushCleanup();
+    await flushCleanup(true);
     setFiles(prev => prev.map(entry => paths.includes(entry.storagePath ?? "") ? {
       ...entry,
       uploadStatus: "pending" as const,
@@ -100,8 +105,17 @@ export default function UploadModal({
   useEffect(() => {
     try { journal.current = new UploadCleanupJournal(window.localStorage); } catch { /* private browsing */ }
     void flushCleanup();
-    window.addEventListener("online", flushCleanup);
-    return () => { window.removeEventListener("online", flushCleanup); abandon(); };
+    const recoverStaleUploads = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await cleanupStaleCourseUploads(supabase, user.id);
+    };
+    void recoverStaleUploads();
+    const handleOnline = () => {
+      if (!busy.current) void flushCleanup();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => { window.removeEventListener("online", handleOnline); abandon(); };
   }, [abandon, flushCleanup]);
 
 
@@ -249,15 +263,24 @@ export default function UploadModal({
         try {
           setProcessingStatus(`Uploading ${fileEntry.file.name}...`);
 
+          // Persist the cleanup identity before the reservation can commit, so
+          // a crash at any later point remains recoverable.
+          const preparedPath = createCourseUploadPath(
+            user.id,
+            sessionId,
+            fileEntry.file,
+          );
+          tracked.current.add(preparedPath);
+          journal.current?.track(preparedPath, false);
+
           const { url, path } = await uploadCourseFile(
             supabase,
             user.id,
             sessionId,
-            fileEntry.file
+            fileEntry.file,
+            preparedPath,
           );
 
-          tracked.current.add(path);
-          journal.current?.track(path);
           // Update file status to uploaded
           setFiles((prev) =>
             prev.map((f) =>
@@ -283,7 +306,7 @@ export default function UploadModal({
         } catch (uploadErr: unknown) {
           if (uploadErr instanceof UploadStorageError) {
             journal.current?.track(uploadErr.storagePath, false);
-            void flushCleanup();
+            void flushCleanup(true);
           }
           const uploadMessage =
             uploadErr instanceof Error
@@ -323,6 +346,7 @@ export default function UploadModal({
       };
 
       attempt.current = payload;
+      for (const path of tracked.current) journal.current?.track(path, true);
       setRetryPending(true);
       const res = await fetch("/api/extract", {
         method: "POST",
@@ -363,7 +387,7 @@ export default function UploadModal({
     }
   };
 
-  const resetState = () => {
+  const resetState = useCallback(() => {
     abandon();
     attempt.current = null;
     owner.current = null;
@@ -376,14 +400,63 @@ export default function UploadModal({
     setSuccess(false);
     setIsProcessing(false);
     setProcessingStatus("");
-  };
+  }, [abandon]);
 
-  const handleClose = () => {
-    if (!isProcessing) {
+  const handleClose = useCallback(() => {
+    if (!locked) {
       resetState();
       onClose();
     }
-  };
+  }, [locked, onClose, resetState]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    previouslyFocused.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialogRef.current?.focus();
+
+    return () => {
+      previouslyFocused.current?.focus();
+      previouslyFocused.current = null;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !locked) {
+        event.preventDefault();
+        handleClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter(element => !element.hidden && element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const focusIsOutside = !(active instanceof Node) || !dialogRef.current.contains(active);
+      if (event.shiftKey &&
+          (active === first || active === dialogRef.current || focusIsOutside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || focusIsOutside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleClose, isOpen, locked]);
 
   if (!isOpen) return null;
 
@@ -396,11 +469,18 @@ export default function UploadModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-0 animate-fade-in">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upload-modal-title"
+        tabIndex={-1}
+        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-0 animate-fade-in focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b-[3px] border-black bg-black text-white">
           <div>
-            <h2 className="text-xl font-bold uppercase flex items-center gap-2">
+            <h2 id="upload-modal-title" className="text-xl font-bold uppercase flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-[#e60000]" />
               Create Cheat Sheet
             </h2>
@@ -410,7 +490,8 @@ export default function UploadModal({
           </div>
           <button
             onClick={handleClose}
-            disabled={isProcessing}
+            disabled={locked}
+            aria-label="Close upload dialog"
             className="p-2 border-2 border-transparent hover:border-white transition-colors disabled:opacity-50 cursor-pointer text-white"
           >
             <X className="w-5 h-5" />
@@ -421,10 +502,11 @@ export default function UploadModal({
           <div className="flex gap-4">
             {/* Course Name */}
             <div className="flex-1">
-              <label className="block text-sm font-bold uppercase text-black mb-2">
+              <label htmlFor="course-name" className="block text-sm font-bold uppercase text-black mb-2">
                 Course Name
               </label>
               <input
+                id="course-name"
                 type="text"
                 value={courseName}
                 onChange={(e) => setCourseName(e.target.value)}
@@ -444,6 +526,7 @@ export default function UploadModal({
                   type="button"
                   onClick={() => adjustTargetPages(-1)}
                   disabled={targetPages <= 1 || locked}
+                  aria-label="Decrease target pages"
                   className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 disabled:opacity-30 disabled:hover:bg-white transition-colors text-black border-r-2 border-black"
                 >
                   <Minus className="w-4 h-4" />
@@ -455,6 +538,7 @@ export default function UploadModal({
                   type="button"
                   onClick={() => adjustTargetPages(1)}
                   disabled={locked || targetPages >= 20}
+                  aria-label="Increase target pages"
                   className="w-12 h-full flex items-center justify-center hover:bg-neutral-100 transition-colors text-black border-l-2 border-black"
                 >
                   <Plus className="w-4 h-4" />
@@ -473,6 +557,15 @@ export default function UploadModal({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => !locked && fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (!locked && (event.key === "Enter" || event.key === " ")) {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              role="button"
+              tabIndex={locked ? -1 : 0}
+              aria-label="Choose course material files"
               className={`relative border-[3px] border-dashed p-8 text-center transition-all cursor-pointer ${
                 isDragging
                   ? "border-[#e60000] bg-red-50"
@@ -483,6 +576,7 @@ export default function UploadModal({
                 ref={fileInputRef}
                 type="file"
                 multiple
+                disabled={locked}
                 accept={ALLOWED_EXTENSIONS.join(",")}
                 onChange={(e) => e.target.files && handleFiles(e.target.files)}
                 className="hidden"
@@ -540,6 +634,7 @@ export default function UploadModal({
                         e.stopPropagation();
                         removeFile(fileEntry.id);
                       }}
+                      aria-label={`Remove ${fileEntry.file.name}`}
                       className="p-1 border-2 border-transparent hover:border-black text-black hover:text-[#e60000] transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -552,11 +647,12 @@ export default function UploadModal({
 
           {/* User Directive */}
           <div className="mt-6">
-            <label className="block text-sm font-bold uppercase text-black mb-2">
+            <label htmlFor="focus-directive" className="block text-sm font-bold uppercase text-black mb-2">
               Focus Directive{" "}
               <span className="text-neutral-500 font-medium normal-case">(optional)</span>
             </label>
             <textarea
+              id="focus-directive"
               value={directive}
               onChange={(e) =>
                 setDirective(e.target.value.slice(0, MAX_DIRECTIVE_LENGTH))
@@ -573,7 +669,7 @@ export default function UploadModal({
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-3 p-4 bg-red-50 border-[3px] border-[#e60000]">
+            <div id="upload-error" role="alert" className="flex items-start gap-3 p-4 bg-red-50 border-[3px] border-[#e60000]">
               <AlertCircle className="w-5 h-5 text-[#e60000] mt-0.5 flex-shrink-0" />
               <p className="text-sm font-bold text-[#e60000] uppercase mt-0.5">{error}</p>
             </div>
@@ -581,7 +677,7 @@ export default function UploadModal({
 
           {/* Success */}
           {success && (
-            <div className="flex items-start gap-3 p-4 bg-green-50 border-[3px] border-green-600">
+            <div role="status" className="flex items-start gap-3 p-4 bg-green-50 border-[3px] border-green-600">
               <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
               <p className="text-sm font-bold text-green-600 uppercase mt-0.5">
                 Extraction complete! Data is ready.
@@ -600,6 +696,7 @@ export default function UploadModal({
           <button
             onClick={handleSubmit}
             disabled={isProcessing || files.length === 0 || !courseName.trim()}
+            aria-describedby={error ? "upload-error" : undefined}
             className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
           >
             {isProcessing ? (

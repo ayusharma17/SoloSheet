@@ -4,7 +4,7 @@
 
 This document defines the **target state**. It does not claim that every requirement is deployed.
 
-The codebase currently has an authenticated extraction route, database-backed administrator lookup, server-created Stripe Checkout and signature-verified webhook routes, plus forward SQL migrations for atomic credit reservations, private audit records, verified-email eligibility, one-time trial provisioning, idempotent payment fulfillment, and payment review holds. Deployment of those migrations and live Stripe test-mode behavior are unverified. Rate limiting is separate post-MVP work.
+The codebase currently has an authenticated extraction route, database-backed administrator lookup, server-created Stripe Checkout and signature-verified webhook routes, plus forward SQL migrations for atomic credit and upload reservations, private audit records, verified-email eligibility, one-time trial provisioning, idempotent payment fulfillment, and payment review holds. Deployment of those migrations and live Stripe test-mode behavior are unverified. Rate limiting is separate post-MVP work.
 
 ## 1. Goal and scope
 

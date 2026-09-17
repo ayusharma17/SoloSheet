@@ -9,14 +9,14 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 ## P0 — Security and credit correctness
 
 - [ ] Audit deployed Supabase migrations, RLS policies, and function grants using anonymous and ordinary authenticated test accounts.
-- [ ] Restrict `add_credits` to authorized server operations, validate positive amounts, and prevent `decrement_credits` from targeting another user.
-- [ ] Secure `admin_whitelist` and set fixed search paths with schema-qualified relations for privileged SQL functions.
-- [ ] Replace storage hostname substring checks with authenticated, owned object paths; enforce the configured project and bucket. If URLs remain, validate exact HTTPS origin and redirects.
-- [ ] Validate extraction request bodies at runtime, including field types, bounded strings, file arrays, and page counts; return clear 400 errors for malformed input.
-- [ ] Enforce actual download byte limits and validate file content/type instead of trusting client-supplied sizes and MIME types.
-- [ ] Reserve credits atomically before extraction, associate spending with an idempotent request/job ID, and settle or refund exactly once.
-- [ ] Remove the unchecked direct profile-update fallback and return the authoritative remaining balance.
-- [ ] Add regression tests for cross-user access, privileged RPC access, invalid URLs, malformed payloads, concurrent spending, duplicate requests, and failed extraction refunds.
+- [x] Restrict `add_credits` to authorized server operations, validate positive amounts, and prevent `decrement_credits` from targeting another user.
+- [x] Secure `admin_whitelist` and set fixed search paths with schema-qualified relations for privileged SQL functions.
+- [x] Replace storage hostname substring checks with authenticated, owned object paths; enforce the configured project and bucket. If URLs remain, validate exact HTTPS origin and redirects.
+- [x] Validate extraction request bodies at runtime, including field types, bounded strings, file arrays, and page counts; return clear 400 errors for malformed input.
+- [x] Enforce actual download byte limits and validate file content/type instead of trusting client-supplied sizes and MIME types.
+- [x] Reserve credits atomically before extraction, associate spending with an idempotent request/job ID, and settle or refund exactly once.
+- [x] Remove the unchecked direct profile-update fallback and return the authoritative remaining balance.
+- [x] Add regression tests for cross-user access, privileged RPC access, invalid URLs, malformed payloads, concurrent spending, duplicate requests, and failed extraction refunds.
 
 ## P1 — Upload and extraction reliability
 
@@ -27,6 +27,7 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 - [ ] Replace direct SQL deletion of `storage.objects` with scheduled deletion through the Storage API.
 - [ ] Move long extraction into durable jobs with queued/running/succeeded/failed states, per-file progress, an overall deadline, and recovery after refresh or worker failure.
 - [ ] Implement rate limiting as a separate post-MVP reliability feature: replace the in-memory limiter with a shared atomic limiter and cap concurrent extraction work per user. This is not part of the anti-abuse/payment MVP.
+- [ ] Schedule Storage-API cleanup for abandoned upload objects/reservations and bounded cleanup or alerting for unmatched Stripe events; keep database-only metadata deletion prohibited.
 - [ ] Verify actual hosting timeouts and provider file/context limits; review model fallbacks and retry only appropriate failures.
 - [ ] Add runtime validation shared across model output and saved extraction data; reject empty, malformed, or truncated responses.
 - [ ] Replace fixed minimum item quotas in the prompt with source-grounded completeness criteria.
@@ -51,7 +52,7 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 - [ ] Add sheet deletion with ownership enforcement and related-data cleanup.
 - [ ] Add dashboard pagination and search so users can access more than nine sheets.
 - [ ] Calculate the total sheets-created count independently of the recent-results limit.
-- [ ] Add upload dialog focus management, Escape handling, accessible labels, and clear status announcements.
+- [x] Add upload dialog focus management, Escape handling, accessible labels, and clear status announcements.
 - [ ] Reconcile the typesetter's styling with the rest of the application and verify narrow-screen usability.
 - [ ] Align product copy with supported inputs and export behavior; raw text upload is not implemented and PDF export currently uses browser printing.
 
@@ -65,16 +66,20 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 - [x] Implement Stripe Checkout and credit purchases according to the current PRD, passing the authenticated Supabase user ID as the Checkout Session's `client_reference_id`.
 - [x] Add authenticated payment fulfillment with verified webhook signatures, duplicate-event protection, server-controlled credit amounts, and the agreed refund handling.
 - [x] Add tests for signup eligibility, administrator exceptions, and duplicate or invalid payment events.
+- [ ] Before supporting self-service Stripe account rotation, persist the Stripe
+  account identity on purchases and support an overlap/drain window for the old
+  webhook secret. The MVP requires the documented zero-pending-purchase
+  operator runbook before any account or mode change.
 
 ## P2 — Developer setup and maintenance
 
-- [ ] Fix the existing explicit `any` lint error in `src/app/api/extract/route.ts` and unused `data` warning in `src/lib/supabase/storage-helpers.ts`.
-- [ ] Expand README with local setup, environment variable names, OAuth configuration, migration order, deployment steps, and troubleshooting.
+- [x] Fix the existing explicit `any` lint error in `src/app/api/extract/route.ts` and unused `data` warning in `src/lib/supabase/storage-helpers.ts`.
+- [x] Expand README with local setup, environment variable names, OAuth configuration, migration order, deployment steps, and troubleshooting.
 - [x] Add a placeholder-only `.env.example` and a targeted `.gitignore` exception.
-- [ ] Make schema setup reproducible; document historical migrations and add forward migrations for fixes instead of assuming scripts can be rerun unchanged.
-- [ ] Add a `typecheck` script and CI for lint, type checking, production builds, and the new regression tests.
+- [x] Make schema setup reproducible; document historical migrations and add forward migrations for fixes instead of assuming scripts can be rerun unchanged.
+- [x] Add a `typecheck` script and CI for lint, type checking, production builds, and the new regression tests.
 - [ ] Make `debug-extraction.ts` use configurable paths and explicit test configuration; separate live integration checks from offline tests.
-- [ ] Update PRDs and migration notes to distinguish implemented, deployed/verified, and planned features.
+- [x] Update PRDs and migration notes to distinguish implemented, deployed/verified, and planned features.
 
 ## P3 — Generation loading experience (low priority)
 

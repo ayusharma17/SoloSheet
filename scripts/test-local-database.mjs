@@ -23,7 +23,9 @@ for (const migration of ['migration.sql', 'migration_phase2.sql', 'migration_pha
   'migration_phase9_anti_abuse_foundation.sql',
   'migration_phase10_identity_and_trial.sql',
   'migration_phase11_extraction_access.sql',
-  'migration_phase12_stripe_payments.sql']) {
+  'migration_phase12_stripe_payments.sql',
+  'migration_phase13_payment_and_admin_hardening.sql',
+  'migration_phase14_storage_abuse_controls.sql']) {
   file(`supabase/${migration}`);
   console.log(`Applied ${migration}`);
 }
@@ -31,9 +33,11 @@ file('supabase/tests/credit_security.sql');
 file('supabase/tests/anti_abuse_foundation.sql');
 file('supabase/tests/identity_and_trial.sql');
 file('supabase/tests/stripe_payments.sql');
+file('supabase/tests/phase13_payment_and_admin_hardening.sql');
+file('supabase/tests/storage_abuse_controls.sql');
 sql("INSERT INTO auth.users(id,email) VALUES ('10000000-0000-4000-8000-000000000001','atomic@example.edu')");
 file('tests/atomic-credits.sql');
-console.log('Security, identity/trial, anti-abuse foundation, and atomic SQL regression assertions passed');
+console.log('Security, identity/trial, payment, storage, and atomic SQL regression assertions passed');
 sql("UPDATE public.profiles SET credits=1 WHERE id='10000000-0000-4000-8000-000000000001'");
 const requestIds = Array.from({ length: 8 }, (_, i) => `30000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 function concurrentSql(input) {
@@ -86,4 +90,59 @@ assert.equal(paymentResults.filter(status => status === 'fulfilled').length, 1);
 assert.equal(paymentResults.filter(status => status === 'already_fulfilled').length, 7);
 assert.equal(sql("SELECT credits FROM public.profiles WHERE id='40000000-0000-4000-8000-000000000001'"), '10');
 console.log('Eight concurrent webhook deliveries: exactly one grant, final balance ten');
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at)
+  VALUES ('50000000-0000-4000-8000-000000000001','storage-concurrent@example.edu',now());
+`);
+const storageResults = await Promise.allSettled(Array.from({ length: 12 }, (_, i) => concurrentSql(`
+  SET request.jwt.claim.sub='50000000-0000-4000-8000-000000000001';
+  SET request.jwt.claim.role='authenticated';
+  SET ROLE authenticated;
+  SELECT public.reserve_course_material_upload(
+    '50000000-0000-4000-8000-000000000001/51000000-0000-4000-8000-000000000001/${String(i + 1).padStart(8, '0')}-0000-4000-8000-000000000001.pdf',
+    1
+  )->>'status';
+`)));
+assert.equal(storageResults.filter(result => result.status === 'fulfilled').length, 10);
+assert.equal(storageResults.filter(result => result.status === 'rejected').length, 2);
+assert.equal(sql("SELECT count(*) FROM public.course_material_upload_reservations WHERE user_id='50000000-0000-4000-8000-000000000001'"), '10');
+console.log('Twelve concurrent upload reservations: exactly ten accepted, two quota-rejected');
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at)
+  VALUES ('60000000-0000-4000-8000-000000000001','storage-race@example.edu',now());
+  SET request.jwt.claim.sub='60000000-0000-4000-8000-000000000001';
+  SET request.jwt.claim.role='authenticated';
+  SET ROLE authenticated;
+  SELECT public.reserve_course_material_upload(
+    '60000000-0000-4000-8000-000000000001/61000000-0000-4000-8000-000000000001/62000000-0000-4000-8000-000000000001.pdf',
+    5
+  );
+`);
+const racedPath = '60000000-0000-4000-8000-000000000001/61000000-0000-4000-8000-000000000001/62000000-0000-4000-8000-000000000001.pdf';
+const uploadDuringRelease = concurrentSql(`
+  BEGIN;
+  SET LOCAL request.jwt.claim.sub='60000000-0000-4000-8000-000000000001';
+  SET LOCAL request.jwt.claim.role='authenticated';
+  SET LOCAL ROLE authenticated;
+  SELECT public.has_course_material_upload_reservation('${racedPath}', auth.uid(), '{"size":5}');
+  SELECT pg_sleep(1);
+  INSERT INTO storage.objects(bucket_id,name,metadata)
+  VALUES ('course-materials','${racedPath}','{"size":5}');
+  COMMIT;
+`);
+const releaseDuringUpload = concurrentSql(`
+  SET request.jwt.claim.sub='60000000-0000-4000-8000-000000000001';
+  SET request.jwt.claim.role='authenticated';
+  SET ROLE authenticated;
+  SELECT pg_sleep(0.2);
+  SELECT public.release_course_material_uploads(ARRAY['${racedPath}']);
+`);
+const raceResults = await Promise.allSettled([uploadDuringRelease, releaseDuringUpload]);
+assert.equal(raceResults[0].status, 'fulfilled');
+assert.equal(raceResults[1].status, 'rejected');
+assert.equal(sql(`SELECT count(*) FROM storage.objects AS object
+  JOIN public.course_material_upload_reservations AS reservation
+    ON reservation.path=object.name
+  WHERE object.bucket_id='course-materials' AND object.name='${racedPath}'`), '1');
+console.log('Concurrent upload/release: upload remains atomically paired with its reservation');
 console.log('No deployed services were accessed. Remove the disposable container after review.');

@@ -1,4 +1,4 @@
--- Run as database owner against an isolated database after phase 6 (or later).
+-- Run as database owner against an isolated database after all current phases.
 -- Requires Supabase auth.uid()/auth.role() helpers and anon/authenticated roles.
 -- All fixtures and writes roll back. Never run against production.
 BEGIN;
@@ -69,16 +69,15 @@ SET LOCAL ROLE service_role;
 DO $$
 BEGIN
   BEGIN
-    PERFORM public.add_credits('a0000000-0000-4000-8000-000000000001', -1);
-    RAISE EXCEPTION 'Negative credit grant accepted';
-  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
-  PERFORM public.add_credits('a0000000-0000-4000-8000-000000000001', 2);
+    PERFORM public.add_credits('a0000000-0000-4000-8000-000000000001', 2);
+    RAISE EXCEPTION 'Retired generic service credit grant remained executable';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END;
 $$;
 RESET ROLE;
 DO $$
 BEGIN
-  IF (SELECT credits FROM public.profiles WHERE id = 'a0000000-0000-4000-8000-000000000001') <> 3
+  IF (SELECT credits FROM public.profiles WHERE id = 'a0000000-0000-4000-8000-000000000001') <> 1
     OR (SELECT credits FROM public.profiles WHERE id = 'a0000000-0000-4000-8000-000000000002') <> 1 THEN
     RAISE EXCEPTION 'Credit balances are incorrect';
   END IF;

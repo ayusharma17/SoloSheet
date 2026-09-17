@@ -2,8 +2,11 @@
 -- All fixtures and writes roll back. Never run against production.
 BEGIN;
 
+INSERT INTO public.admin_whitelist (email, reason)
+VALUES ('initial-admin@example.com', 'Identity regression fixture');
+
 INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
-  ('c0000000-0000-4000-8000-000000000001', 'ayush170505@gmail.com', now()),
+  ('c0000000-0000-4000-8000-000000000001', 'initial-admin@example.com', now()),
   ('c0000000-0000-4000-8000-000000000002', 'student@school.edu', now());
 
 DO $$

@@ -1,27 +1,32 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  getTrustedAppOrigin,
+  internalRedirectPath,
+  safeServerLog,
+  trustedRedirectOrigin,
+} from "@/lib/http-security";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  const next = internalRedirectPath(searchParams.get("next"));
+  let trustedOrigin: string;
+  try {
+    trustedOrigin = trustedRedirectOrigin(request, getTrustedAppOrigin());
+  } catch {
+    safeServerLog("auth.callback", "invalid_server_configuration");
+    return NextResponse.json({ error: "Authentication is unavailable." }, { status: 503 });
+  }
 
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const isLocalEnv = process.env.NODE_ENV === "development";
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`);
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
-      } else {
-        return NextResponse.redirect(`${origin}${next}`);
-      }
+      return NextResponse.redirect(new URL(next, trustedOrigin));
     }
+    safeServerLog("auth.callback", "code_exchange_failed");
   }
 
-  // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  return NextResponse.redirect(new URL("/login?error=auth", trustedOrigin));
 }

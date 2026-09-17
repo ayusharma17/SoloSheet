@@ -1,4 +1,7 @@
-# PRD: Foundations & Credit-Gated Infrastructure (Phase 1)
+# Historical PRD: Foundations & Credit-Gated Infrastructure (Phase 1)
+
+> This records the original phase-1 plan. The current one-credit eligibility,
+> administrator, and payment policy is defined by `Anti-Abuse_PRD.md`.
 
 ## 1. Introduction
 
@@ -16,7 +19,7 @@ A Next.js web application integrated with Supabase for authentication and databa
 
 - **US1:** As a student, I want to sign up via Google so I don't have to remember another password.
 - **US2:** As a user, I want to see my remaining "Cheat Sheet Credits" on a dashboard.
-- **US3:** As the owner, I want to automatically grant 3 free credits to new users so they can test the tool.
+- **US3 (historical):** As the owner, I want to automatically grant 3 free credits to new users so they can test the tool. The current anti-abuse policy supersedes this with 1 credit for eligible users.
 - **US4:** As the owner, I want the system to block AI requests if a user has 0 credits.
 
 ## 5. Technical Requirements
@@ -34,7 +37,7 @@ A Next.js web application integrated with Supabase for authentication and databa
 | ------------ | --------- | ------------------------------------------ |
 | `id`         | uuid (PK) | Links to `auth.users`                      |
 | `full_name`  | text      | User's name from OAuth                     |
-| `credits`    | integer   | Number of allowed generations (Default: 3) |
+| `credits`    | integer   | Number of allowed generations (Original default: 3; current policy: 1) |
 | `created_at` | timestamp | Account creation date                      |
 
 ## 6. Acceptance Criteria

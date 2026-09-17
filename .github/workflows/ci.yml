@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: docker run --name solosheet-ci-db -e POSTGRES_HOST_AUTH_METHOD=trust -d postgres:16
+      - name: Wait for PostgreSQL
+        run: |
+          for attempt in {1..30}; do
+            if docker exec solosheet-ci-db pg_isready -U postgres; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs solosheet-ci-db
+          exit 1
+      - run: TEST_POSTGRES_CONTAINER=solosheet-ci-db npm run test:database
+      - run: npm run build
+      - name: Remove test database container
+        if: always()
+        run: docker rm -f solosheet-ci-db || true

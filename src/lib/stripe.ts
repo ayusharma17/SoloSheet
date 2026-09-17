@@ -14,6 +14,18 @@ export function createStripeClient(secretKey: string): Stripe {
   return new Stripe(secretKey, { maxNetworkRetries: 2 });
 }
 
+export function isExpectedStripePrice(price: Stripe.Price): boolean {
+  return price.active && price.type === "one_time" && price.unit_amount === STRIPE_PACKAGE_AMOUNT &&
+    price.currency.toLowerCase() === STRIPE_PACKAGE_CURRENCY;
+}
+
+export function isStripeResourceMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; type?: unknown };
+  return candidate.code === "resource_missing" &&
+    candidate.type === "StripeInvalidRequestError";
+}
+
 export function getStripeCheckoutConfig() {
   const secretKey = required("STRIPE_SECRET_KEY");
   const priceId = required("STRIPE_PRICE_ID");

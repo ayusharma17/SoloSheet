@@ -1,10 +1,28 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
 export class UploadStorageError extends Error {
-  constructor(message: string, public readonly storagePath: string) {
+  readonly storagePath: string;
+
+  constructor(message: string, storagePath: string) {
     super(message);
     this.name = "UploadStorageError";
+    this.storagePath = storagePath;
   }
+}
+
+export function createCourseUploadPath(
+  userId: string,
+  sessionId: string,
+  file: Pick<File, "name">,
+): string {
+  if (![userId, sessionId].every(part => /^[a-zA-Z0-9_-]+$/.test(part))) {
+    throw new Error("Invalid upload owner or session");
+  }
+  const extension = file.name.split(".").pop?.()?.toLowerCase();
+  if (!extension || !/^(pdf|png|jpg|jpeg|webp|gif)$/.test(extension)) {
+    throw new Error("Invalid upload extension");
+  }
+  return `${userId}/${sessionId}/${crypto.randomUUID()}.${extension}`;
 }
 
 /**
@@ -20,14 +38,26 @@ export async function uploadCourseFile(
   supabase: SupabaseClient,
   userId: string,
   sessionId: string,
-  file: File
+  file: File,
+  preparedPath?: string,
 ): Promise<{ url: string; path: string }> {
   validateFileForUpload(file);
-  if (![userId, sessionId].every(part => /^[a-zA-Z0-9_-]+$/.test(part))) {
-    throw new Error("Invalid upload owner or session");
+  const generatedPath = createCourseUploadPath(userId, sessionId, file);
+  const filePath = preparedPath ?? generatedPath;
+  const expectedPrefix = `${userId}/${sessionId}/`;
+  const expectedExtension = `.${file.name.split(".").pop()!.toLowerCase()}`;
+  if (!filePath.startsWith(expectedPrefix) || !filePath.endsWith(expectedExtension) ||
+      filePath.slice(expectedPrefix.length, -expectedExtension.length).includes("/")) {
+    throw new Error("Invalid prepared upload path");
   }
-  const extension = file.name.split(".").pop()!.toLowerCase();
-  const filePath = `${userId}/${sessionId}/${crypto.randomUUID()}.${extension}`;
+
+  const { error: reservationError } = await supabase.rpc(
+    "reserve_course_material_upload",
+    { p_path: filePath, p_size_bytes: file.size },
+  );
+  if (reservationError) {
+    throw new Error("Upload storage quota is unavailable or exceeded");
+  }
 
   const { error } = await supabase.storage
     .from("course-materials")
@@ -38,6 +68,16 @@ export async function uploadCourseFile(
 
   if (error) {
     console.error("Storage upload error:", error);
+    const { error: releaseError } = await supabase.rpc(
+      "release_course_material_uploads",
+      { p_paths: [filePath] },
+    );
+    if (releaseError) {
+      throw new UploadStorageError(
+        `Failed to upload ${file.name}; reserved path needs cleanup`,
+        filePath,
+      );
+    }
     throw new Error(`Failed to upload ${file.name}: ${error.message}`);
   }
 
@@ -50,6 +90,11 @@ export async function uploadCourseFile(
     try {
       const { error: cleanupError } = await supabase.storage.from("course-materials").remove([filePath]);
       if (cleanupError) throw new Error("Cleanup failed");
+      const { error: releaseError } = await supabase.rpc(
+        "release_course_material_uploads",
+        { p_paths: [filePath] },
+      );
+      if (releaseError) throw new Error("Reservation cleanup failed");
     } catch {
       throw new UploadStorageError(`Failed to generate URL for ${file.name}; uploaded file needs cleanup`, filePath);
     }
@@ -137,9 +182,61 @@ export async function cleanupUploadedFiles(
   if (error) {
     console.warn("Failed to cleanup files:", error);
     return false;
-  } else {
-    return true;
   }
+  const { error: releaseError } = await supabase.rpc(
+    "release_course_material_uploads",
+    { p_paths: filePaths },
+  );
+  if (releaseError) {
+    console.warn("Failed to release upload reservations");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Recover uploads abandoned by a browser that could not persist its cleanup
+ * journal. Only files older than the cutoff are removed, and deletion still
+ * flows through Storage before the matching reservation is released.
+ */
+export async function cleanupStaleCourseUploads(
+  supabase: SupabaseClient,
+  userId: string,
+  cutoff: Date = new Date(Date.now() - 24 * 60 * 60 * 1000),
+): Promise<number> {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(userId) ||
+      !Number.isFinite(cutoff.getTime())) return 0;
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || user?.id !== userId) return 0;
+
+  const { data: sessions, error: sessionError } = await supabase.storage
+    .from("course-materials")
+    .list(userId, { limit: 100 });
+  if (sessionError || !sessions) return 0;
+
+  const stalePaths: string[] = [];
+  for (const session of sessions) {
+    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(session.name)) continue;
+    const { data: objects, error } = await supabase.storage
+      .from("course-materials")
+      .list(`${userId}/${session.name}`, { limit: 100 });
+    if (error || !objects) continue;
+    for (const object of objects) {
+      const timestamp = object.updated_at ?? object.created_at;
+      if (!timestamp || new Date(timestamp).getTime() >= cutoff.getTime() ||
+          !/^[0-9a-f]{8}-[0-9a-f-]{27}\.(pdf|png|jpg|jpeg|webp|gif)$/i.test(object.name)) {
+        continue;
+      }
+      stalePaths.push(`${userId}/${session.name}/${object.name}`);
+    }
+  }
+
+  let removed = 0;
+  for (let index = 0; index < stalePaths.length; index += 10) {
+    const batch = stalePaths.slice(index, index + 10);
+    if (await cleanupUploadedFiles(supabase, batch)) removed += batch.length;
+  }
+  return removed;
 }
 
 /**

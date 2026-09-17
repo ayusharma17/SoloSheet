@@ -10,24 +10,11 @@ import { creditCall, finishExtraction } from "@/lib/extraction-credits";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
-
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const now = Date.now();
-    for (const [id, entry] of rateLimitMap) {
-      if (now - entry.windowStart > 60_000) rateLimitMap.delete(id);
-    }
-    const rate = rateLimitMap.get(user.id) ?? { count: 0, windowStart: now };
-    if (rate.count >= 5) {
-      return NextResponse.json({ error: "Too many extraction requests. Please wait a minute and try again." }, { status: 429 });
-    }
-    rate.count++;
-    rateLimitMap.set(user.id, rate);
 
     const storageOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

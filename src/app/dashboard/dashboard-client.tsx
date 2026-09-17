@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
   BookOpen,
@@ -33,6 +33,7 @@ interface DashboardClientProps {
   isAdmin: boolean;
   isAccountHeld: boolean;
   checkoutStatus: "success" | "canceled" | null;
+  checkoutSessionId: string | null;
   materials: CourseMaterial[];
 }
 
@@ -42,6 +43,7 @@ export default function DashboardClient({
   isAdmin,
   isAccountHeld,
   checkoutStatus,
+  checkoutSessionId,
   materials,
 }: DashboardClientProps) {
   const router = useRouter();
@@ -49,6 +51,74 @@ export default function DashboardClient({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  const [currentCredits, setCurrentCredits] = useState(credits);
+  const [currentHeld, setCurrentHeld] = useState(isAccountHeld);
+  const [purchaseState, setPurchaseState] = useState<"confirming" | "paid" | "held" | "unconfirmed">(
+    checkoutStatus === "success" && checkoutSessionId ? "confirming" : "unconfirmed",
+  );
+
+  useEffect(() => {
+    setCurrentCredits(credits);
+    setCurrentHeld(isAccountHeld);
+  }, [credits, isAccountHeld]);
+
+  useEffect(() => {
+    if (checkoutStatus !== "success" || !checkoutSessionId) return;
+
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+
+    const checkPurchase = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(
+          `/api/stripe/purchase-status?session_id=${encodeURIComponent(checkoutSessionId)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const payload: unknown = await response.json();
+        if (response.ok && payload && typeof payload === "object") {
+          const status = (payload as { status?: unknown }).status;
+          const updatedCredits = (payload as { credits?: unknown }).credits;
+          const accountHeld = (payload as { accountHeld?: unknown }).accountHeld;
+          if (Number.isInteger(updatedCredits) && Number(updatedCredits) >= 0) {
+            setCurrentCredits(Number(updatedCredits));
+          }
+          if (typeof accountHeld === "boolean") setCurrentHeld(accountHeld);
+          if (accountHeld === true) {
+            setPurchaseState("held");
+            return;
+          }
+          if (status === "paid") {
+            setPurchaseState("paid");
+            return;
+          }
+          if (["refunded", "disputed", "chargeback"].includes(String(status))) {
+            setPurchaseState("held");
+            return;
+          }
+          if (["failed", "expired", "canceled"].includes(String(status))) {
+            setPurchaseState("unconfirmed");
+            return;
+          }
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+
+      if (attempts < 20) {
+        timeout = setTimeout(checkPurchase, 1000);
+      } else {
+        setPurchaseState("unconfirmed");
+      }
+    };
+
+    void checkPurchase();
+    return () => {
+      controller.abort();
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [checkoutSessionId, checkoutStatus]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -69,17 +139,23 @@ export default function DashboardClient({
       const payload: unknown = await response.json();
       if (!response.ok || !payload || typeof payload !== "object" ||
           typeof (payload as { url?: unknown }).url !== "string") {
-        throw new Error("Checkout unavailable");
+        const detail = payload && typeof payload === "object" &&
+          typeof (payload as { error?: unknown }).error === "string"
+          ? (payload as { error: string }).error
+          : "Checkout is temporarily unavailable. Please try again.";
+        throw new Error(detail.slice(0, 200));
       }
       window.location.assign((payload as { url: string }).url);
-    } catch {
-      setCheckoutError("Checkout is temporarily unavailable. Please try again.");
+    } catch (error) {
+      setCheckoutError(error instanceof Error
+        ? error.message
+        : "Checkout is temporarily unavailable. Please try again.");
       setCheckoutLoading(false);
     }
   };
 
-  const isOutOfCredits = !isAdmin && credits <= 0;
-  const generationBlocked = isAccountHeld || isOutOfCredits;
+  const isOutOfCredits = !isAdmin && currentCredits <= 0;
+  const generationBlocked = currentHeld || isOutOfCredits;
   const sheetsCreated = materials.length;
   const lastActivity = materials.length > 0
     ? new Date(materials[0].created_at).toLocaleDateString("en-US", {
@@ -109,8 +185,8 @@ export default function DashboardClient({
             <div className="hidden sm:flex items-center gap-2 px-3 py-1 border-2 border-black">
               <CreditCard className="w-4 h-4 text-black" />
               <span className="text-xs font-bold uppercase tracking-tight">
-                <span className={isAdmin || credits > 0 ? "text-black" : "text-[#e60000]"}>
-                  {isAdmin ? "∞" : credits}
+                <span className={isAdmin || currentCredits > 0 ? "text-black" : "text-[#e60000]"}>
+                  {isAdmin ? "∞" : currentCredits}
                 </span>{" "}
                 <span className="text-neutral-500">{isAdmin ? "unlimited" : "credits"}</span>
               </span>
@@ -169,7 +245,13 @@ export default function DashboardClient({
             role="status"
           >
             {checkoutStatus === "success"
-              ? "Payment submitted. Credits appear after Stripe confirms the payment. Refresh if the balance has not updated yet."
+              ? purchaseState === "paid"
+                ? "Payment confirmed. 10 credits were added to your account."
+                : purchaseState === "held"
+                  ? "Payment was recorded, but this account is under review. Contact support before using credits."
+                : purchaseState === "confirming"
+                  ? "Payment submitted. Confirming your credits…"
+                  : "Payment could not be confirmed yet. Your card will never grant credits without Stripe confirmation."
               : "Checkout canceled. No credits were added and you were not charged."}
           </div>
         ) : null}
@@ -186,15 +268,15 @@ export default function DashboardClient({
                 <CreditCard className="w-5 h-5 text-black" />
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`text-6xl font-black tracking-tighter ${isAdmin || credits > 0 ? "text-black" : "text-[#e60000]"}`}>
-                  {isAdmin ? "∞" : credits}
+                <span className={`text-6xl font-black tracking-tighter ${isAdmin || currentCredits > 0 ? "text-black" : "text-[#e60000]"}`}>
+                  {isAdmin ? "∞" : currentCredits}
                 </span>
               </div>
             </div>
             <div className="mt-6 border-2 border-black h-3 w-full bg-white relative">
               <div
                 className="absolute top-0 left-0 h-full bg-[#e60000] transition-all duration-500"
-                style={{ width: isAdmin ? "100%" : `${Math.min((credits / 10) * 100, 100)}%` }}
+                style={{ width: isAdmin ? "100%" : `${Math.min((currentCredits / 10) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -251,7 +333,7 @@ export default function DashboardClient({
                 Create New Sheet
               </h2>
               <p className="text-neutral-600 mt-4 text-base font-medium max-w-2xl leading-relaxed">
-                Upload lecture PDFs, slides, or raw text. The engine compresses the input material into a high-density, strictly-formatted exam document.
+                Upload lecture PDFs, slides, or images. The engine compresses the input material into a high-density, strictly-formatted exam document.
               </p>
             </div>
 
@@ -267,9 +349,9 @@ export default function DashboardClient({
                   </button>
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#e60000]">
                     <AlertCircle className="w-4 h-4" />
-                    {isAccountHeld ? "System Halt: Account Under Review" : "System Halt: 0 Credits"}
+                    {currentHeld ? "System Halt: Account Under Review" : "System Halt: 0 Credits"}
                   </p>
-                  {isOutOfCredits && !isAccountHeld && (
+                  {isOutOfCredits && !currentHeld && (
                     <button
                       type="button"
                       onClick={handleCheckout}
@@ -357,7 +439,7 @@ export default function DashboardClient({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleUploadSuccess}
-        credits={credits}
+        credits={currentCredits}
         isAdmin={isAdmin}
       />
     </div>

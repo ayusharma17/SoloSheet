@@ -14,3 +14,8 @@ test("account hold lookup uses only a non-empty authenticated user ID", async ()
   assert.equal(await isAccountHeld("", lookup), false);
   assert.deepEqual(seen, ["held-user", "active-user"]);
 });
+
+test("hold lookup failures fail closed instead of treating the account as clear", async () => {
+  const unavailable = async () => { throw new Error("database unavailable"); };
+  await assert.rejects(isAccountHeld("user", unavailable), /database unavailable/);
+});

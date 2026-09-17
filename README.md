@@ -48,25 +48,27 @@ normal Google login. The automated checks below can run without either service.
 
 Stripe is card-only for the MVP. The configured Price must be a one-time $3.00
 USD price for 10 credits. Subscribe the webhook endpoint
-`/api/webhooks/stripe` to `checkout.session.completed`, `charge.refunded`,
-`charge.dispute.created`, and `charge.dispute.closed`. See
+`/api/webhooks/stripe` to `checkout.session.completed`,
+`checkout.session.expired`, `charge.refunded`, `charge.dispute.created`, and
+`charge.dispute.closed`. See
 [docs/stripe-payments.md](docs/stripe-payments.md) before test-mode verification.
 The Stripe CLI is optional and is needed only to forward sandbox webhooks to a
 localhost server; a deployed HTTPS endpoint receives webhooks directly.
 
-Run automated checks:
+Run automated checks. The database suite requires Docker and uses only a fresh,
+unpublished disposable PostgreSQL database:
 
 ```sh
-npm run lint
-./node_modules/.bin/tsc --noEmit --incremental false
-node tests/extraction-credits.test.mjs
-node tests/extraction-validation.test.cjs
-node tests/admin.test.mjs
-node tests/account-holds.test.mjs
-node tests/payments.test.mjs
-node tests/stripe-webhook.test.mjs
+npm run check
+docker run --name solosheet-hardening-db -e POSTGRES_HOST_AUTH_METHOD=trust -d postgres:16
+npm run test:database
+npm run build
 git diff --check
 ```
+
+See [administrator operations](docs/admin-operations.md) for first-admin
+bootstrap, allowlist changes, and hold release. These operations are never
+available to browser clients.
 
 To have an agent run the authenticated browser test, ask: `Use the local-testing skill, start the local Supabase and Next.js services, authenticate the local Playwright account, and verify dashboard access, guide modes, overflow reporting, and printed PDF page counts.`
 

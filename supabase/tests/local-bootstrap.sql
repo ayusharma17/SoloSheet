@@ -25,7 +25,8 @@ CREATE TABLE storage.buckets (
 );
 CREATE TABLE storage.objects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text,
-  name text, created_at timestamptz DEFAULT now()
+  name text, metadata jsonb, created_at timestamptz DEFAULT now(),
+  UNIQUE (bucket_id, name)
 );
 CREATE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$
   SELECT (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1)-1]

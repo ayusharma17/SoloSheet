@@ -5,7 +5,7 @@ export type AdminEmailLookup = (normalizedEmail: string) => Promise<boolean>;
 async function lookupAdminEmail(normalizedEmail: string): Promise<boolean> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return false;
+  if (!url || !serviceKey) throw new Error("Administrator lookup is not configured");
 
   const client = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -17,7 +17,8 @@ async function lookupAdminEmail(normalizedEmail: string): Promise<boolean> {
     .eq("is_active", true)
     .maybeSingle();
 
-  return !error && data !== null;
+  if (error) throw new Error("Administrator lookup failed");
+  return data !== null;
 }
 
 // Call only with the verified user returned by server-side auth.getUser().

@@ -78,8 +78,13 @@ BEGIN
 END $$;
 
 SELECT set_config('request.jwt.claim.role', 'service_role', true);
+RESET ROLE;
+INSERT INTO public.admin_whitelist (email, reason)
+VALUES ('atomic-admin@example.com', 'Atomic regression fixture')
+ON CONFLICT (email) DO UPDATE SET is_active = true;
+SET LOCAL ROLE service_role;
 INSERT INTO auth.users(id, email, email_confirmed_at)
-VALUES ('10000000-0000-4000-8000-000000000002', 'ayush170505@gmail.com', now());
+VALUES ('10000000-0000-4000-8000-000000000002', 'atomic-admin@example.com', now());
 DO $$
 DECLARE
   r jsonb;

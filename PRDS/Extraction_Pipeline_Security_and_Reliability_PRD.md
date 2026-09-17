@@ -121,6 +121,8 @@ any non-disposable database:
 10. `supabase/migration_phase10_identity_and_trial.sql`
 11. `supabase/migration_phase11_extraction_access.sql`
 12. `supabase/migration_phase12_stripe_payments.sql`
+13. `supabase/migration_phase13_payment_and_admin_hardening.sql`
+14. `supabase/migration_phase14_storage_abuse_controls.sql`
 
 Phase 6 secures legacy credit functions and access policies. Phase 7 adds the
 durable `extraction_requests` reservation protocol. Phase 8 retires device
@@ -130,7 +132,13 @@ enforces verified educational-email eligibility, and grants the one-time trial.
 Phase 11 resolves administrator bypass and account holds inside the atomic
 extraction transaction. SQL files describe intended deployment; successful local
 execution does not prove hosted deployment. Phase 12 adds pending purchase,
-idempotent Stripe fulfillment, and refund/dispute hold transactions.
+idempotent Stripe fulfillment, and refund/dispute hold transactions. Phase 13
+adds recoverable payment lifecycle states, out-of-order event reconciliation,
+current-identity administrator checks, and audited hold release. Phase 14 adds
+reservation-backed exact owned Storage paths plus per-user object-count and
+aggregate-byte quotas without writing Storage metadata directly.
+Phase 14 intentionally fails if existing Storage metadata cannot be safely
+backfilled; inspect and clean incompatible objects through the Storage API first.
 
 ### Server and client boundaries
 
@@ -166,9 +174,10 @@ checks, and admin access.
 **In scope:** the five hardening areas, forward SQL migrations, local test setup,
 retry contracts, and verification documentation.
 
-**Out of scope:** payment-provider implementation, new admin roles or unlimited
-flags not present in the current schema, device-review business policy changes,
-hosted migration execution, and live Gemini extraction tests.
+**Originally out of scope for phases 1-7:** payment-provider implementation and
+the canonical administrator/payment policy. Those are now specified by
+`Anti-Abuse_PRD.md` and implemented by later forward migrations. Hosted migration
+execution and live Gemini extraction tests remain separate deployment checks.
 
 ## Risks and mitigations
 

@@ -34,7 +34,8 @@ The stack is Next.js App Router, React, strict TypeScript, Tailwind CSS, Supabas
 - Lint: `npm run lint`.
 - Type check: `./node_modules/.bin/tsc --noEmit --incremental false`.
 - Production build: `npm run build`; serve the build with `npm start`.
-- There is currently no automated test script. Do not report `npm test` as a working check.
+- Focused checks are available through `npm run check`; database regression tests
+  use `npm run test:database` against an explicitly named disposable Postgres container.
 
 Required configuration names are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, and `APP_URL`. The optional model setting is `GEMINI_MODEL`. Administrator identity is database-managed; do not add an environment-based administrator list. Do not print or commit actual environment values, signed URLs, Stripe secrets, or credentials. The build uses `next/font/google` and may need network access to fetch fonts.
 

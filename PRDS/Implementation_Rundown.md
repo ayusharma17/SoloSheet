@@ -73,9 +73,9 @@ The platform operates on a single hook-and-convert business model:
 
 The primary utility of the application resides in a highly focused modal interface:
 
-- **Data Collection:** The user inputs a Class Name, Target Pages (1-5), an optional Focus Directive, and uploads files (PDF, PNG, JPG).
+- **Data Collection:** The user inputs a Class Name, Target Pages (1-20), an optional Focus Directive, and uploads files (PDF, PNG, JPG).
 - **Extraction:**
-  - Next.js parses the files into base64 or extracts raw text (utilizing `pdf-parse` or similar libraries).
+  - The server validates owned storage objects, MIME types, magic bytes, and streamed byte limits before sending supported PDFs/images to Gemini.
   - The text is packaged in a prompt designed to extract highly dense, LaTeX-formatted theorems and concepts while adhering rigidly to the Target Page limit and focusing entirely on the User's Directive.
 - **LLM Processing:** The prompt is sent to the Google Gemini API (or equivalent fast, large-context model).
 - **Result Output:** The structured JSON response is inserted into the `course_materials` table. The dashboard reads this data and renders the final cheat sheet using a LaTeX-compatible markdown parser.

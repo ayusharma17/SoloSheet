@@ -9,8 +9,9 @@ CREATE TABLE IF NOT EXISTS admin_whitelist (
     created_at timestamp with time zone DEFAULT now()
 );
 
--- Insert the default admin
-INSERT INTO admin_whitelist (email) VALUES ('ayush170505@gmail.com') ON CONFLICT DO NOTHING;
+-- Administrators are deployment-specific. Bootstrap the first administrator
+-- explicitly as the database owner; reusable/open-source migrations must not
+-- authorize a repository maintainer's personal identity.
 
 -- 1. Modified handle_new_user trigger (1 trial credit, .edu restriction, & whitelist)
 CREATE OR REPLACE FUNCTION public.handle_new_user()

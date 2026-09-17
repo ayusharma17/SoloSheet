@@ -5,13 +5,20 @@ import { redirect } from "next/navigation";
 import DashboardClient from "./dashboard-client";
 
 type DashboardPageProps = {
-  searchParams: Promise<{ checkout?: string | string[] }>;
+  searchParams: Promise<{
+    checkout?: string | string[];
+    session_id?: string | string[];
+  }>;
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const checkout = (await searchParams).checkout;
+  const params = await searchParams;
+  const checkout = params.checkout;
   const checkoutStatus = checkout === "success" || checkout === "canceled"
     ? checkout
+    : null;
+  const checkoutSessionId = checkoutStatus === "success" && typeof params.session_id === "string"
+    ? params.session_id
     : null;
   const supabase = await createClient();
 
@@ -45,6 +52,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       isAdmin={admin}
       isAccountHeld={accountHeld}
       checkoutStatus={checkoutStatus}
+      checkoutSessionId={checkoutSessionId}
       materials={materialsResult.data ?? []}
     />
   );
