@@ -1,13 +1,36 @@
 import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV === "development";
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function localSupabaseConnectSources(
+  development: boolean,
+  configuredUrl: string | undefined,
+): string[] {
+  if (!development || !configuredUrl) return [];
+  try {
+    const url = new URL(configuredUrl);
+    if (!loopbackHosts.has(url.hostname) || !["http:", "https:"].includes(url.protocol)) return [];
+    const socketProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return [url.origin, `${socketProtocol}//${url.host}`];
+  } catch {
+    return [];
+  }
+}
+
+const connectSources = [
+  "'self'",
+  "https://*.supabase.co",
+  "wss://*.supabase.co",
+  ...localSupabaseConnectSources(isDevelopment, process.env.NEXT_PUBLIC_SUPABASE_URL),
+];
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://lh3.googleusercontent.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  `connect-src ${connectSources.join(" ")}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

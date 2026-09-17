@@ -1,0 +1,4 @@
+# The deployed-baseline commit used Stripe's documented test-key prefix with
+# the literal value "placeholder"; it is not a credential. The public-release
+# commit replaces it, but full-history scans still inspect the baseline.
+a5aff8dffda419464c94e86095560b468fdf15e8:.env.example:stripe-access-token:13

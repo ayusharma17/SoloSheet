@@ -9,7 +9,7 @@ import {
 import { readTextBody, RequestBodyError } from "../src/lib/request-body.ts";
 import { isExpectedStripePrice } from "../src/lib/stripe.ts";
 import { copyResponseCookies } from "../src/lib/response-cookies.ts";
-import nextConfig from "../next.config.ts";
+import nextConfig, { localSupabaseConnectSources } from "../next.config.ts";
 
 function withEnvironment(values, callback) {
   const previous = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
@@ -123,4 +123,14 @@ test("all application routes receive baseline browser security headers", async (
   assert.equal(headers["X-Content-Type-Options"], "nosniff");
   assert.equal(headers["X-Frame-Options"], "DENY");
   assert.equal(headers["Strict-Transport-Security"], "max-age=31536000");
+});
+
+test("development CSP permits only the configured loopback Supabase origin", () => {
+  assert.deepEqual(
+    localSupabaseConnectSources(true, "http://127.0.0.1:55421"),
+    ["http://127.0.0.1:55421", "ws://127.0.0.1:55421"],
+  );
+  assert.deepEqual(localSupabaseConnectSources(false, "http://127.0.0.1:55421"), []);
+  assert.deepEqual(localSupabaseConnectSources(true, "https://attacker.example"), []);
+  assert.deepEqual(localSupabaseConnectSources(true, "not a URL"), []);
 });

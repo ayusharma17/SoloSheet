@@ -25,17 +25,39 @@ BEGIN
     RAISE EXCEPTION 'Trial grant was not audited exactly once';
   END IF;
 
+  INSERT INTO auth.users (id, email, email_confirmed_at)
+  VALUES ('c0000000-0000-4000-8000-000000000003', 'outsider@example.com', NULL);
+  IF EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = 'c0000000-0000-4000-8000-000000000003'
+  ) THEN
+    RAISE EXCEPTION 'Unverified ineligible user received an application profile';
+  END IF;
   BEGIN
-    INSERT INTO auth.users (id, email, email_confirmed_at)
-    VALUES ('c0000000-0000-4000-8000-000000000003', 'outsider@example.com', now());
-    RAISE EXCEPTION 'Non-educational signup succeeded';
+    UPDATE auth.users SET email_confirmed_at = now()
+    WHERE id = 'c0000000-0000-4000-8000-000000000003';
+    RAISE EXCEPTION 'Non-educational email confirmation succeeded';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 
-  BEGIN
-    INSERT INTO auth.users (id, email, email_confirmed_at)
-    VALUES ('c0000000-0000-4000-8000-000000000004', 'unverified@school.edu', NULL);
-    RAISE EXCEPTION 'Unverified signup succeeded';
-  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+  INSERT INTO auth.users (id, email, email_confirmed_at)
+  VALUES ('c0000000-0000-4000-8000-000000000004', 'unverified@school.edu', NULL);
+  IF EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = 'c0000000-0000-4000-8000-000000000004'
+  ) THEN
+    RAISE EXCEPTION 'Unverified eligible user received an application profile';
+  END IF;
+  UPDATE auth.users SET email_confirmed_at = now()
+  WHERE id = 'c0000000-0000-4000-8000-000000000004';
+  UPDATE auth.users SET email_confirmed_at = email_confirmed_at
+  WHERE id = 'c0000000-0000-4000-8000-000000000004';
+  IF (SELECT credits FROM public.profiles
+      WHERE id = 'c0000000-0000-4000-8000-000000000004') <> 1
+    OR (SELECT count(*) FROM public.audit_events
+        WHERE subject_user_id = 'c0000000-0000-4000-8000-000000000004'
+          AND event_type = 'trial.granted') <> 1 THEN
+    RAISE EXCEPTION 'Email confirmation did not grant exactly one audited trial';
+  END IF;
 END;
 $$;
 

@@ -14,4 +14,5 @@ export const databaseMigrations = [
   "migration_phase13_payment_and_admin_hardening.sql",
   "migration_phase14_storage_abuse_controls.sql",
   "migration_phase15_storage_upload_preflight.sql",
+  "migration_phase16_auth_confirmation_compatibility.sql",
 ];

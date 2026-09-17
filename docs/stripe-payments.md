@@ -21,9 +21,9 @@ STRIPE_PRICE_ID=<one-time $3.00 USD Price ID>
 APP_URL=https://your-app.example
 ```
 
-`APP_URL` may use HTTP only in local development. Apply the ordered Supabase
-migrations through `migration_phase14_storage_abuse_controls.sql` before
-deploying the matching routes.
+`APP_URL` may use HTTP only in local development. Apply all ordered Supabase
+migrations through `migration_phase16_auth_confirmation_compatibility.sql`
+before deploying the matching routes.
 
 ## Webhook endpoint
 

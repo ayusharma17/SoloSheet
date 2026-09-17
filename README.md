@@ -75,6 +75,21 @@ npm run build
 git diff --check
 ```
 
+For an authenticated local browser pass, start local Supabase and Next.js with
+`NEXT_PUBLIC_ENABLE_TEST_AUTH=true`, then create the disposable account and run
+the Playwright flow:
+
+```sh
+node scripts/create-playwright-user.mjs
+PLAYWRIGHT_HEADLESS=true node scripts/playwright-auth.mjs
+npm run test:e2e:local
+```
+
+The browser test uses the self-authored synthetic PDF, uploads it to local
+Storage, and mocks only the Gemini extraction response so no hosted provider or
+production data is contacted. It verifies the same request ID is retained for
+an ambiguous retry and that a terminal restart cleans up the temporary upload.
+
 See [administrator operations](docs/admin-operations.md) for first-admin
 bootstrap, allowlist changes, and hold release. These operations are never
 available to browser clients.
