@@ -24,6 +24,7 @@ The stack is Next.js App Router, React, strict TypeScript, Tailwind CSS, Supabas
 - Validate external input at runtime; TypeScript assertions do not validate request bodies, stored JSON, or model responses. Prefer `unknown` plus narrowing over `any`.
 - Preserve the current visual language unless redesign is requested. Treat preview and printed output as separate paths that both need verification.
 - When product requirements conflict with implementation, state the discrepancy and avoid silently choosing a new business policy.
+- When interacting with an external service, platform, account, or hosted resource, use its connected plugin or MCP tools whenever available. Prefer provider-specific tools over generic web browsing, CLI access, or assumptions, and verify the connection before claiming external state.
 - Always document non-obvious behavior, setup steps, migration order, environment switching, and operational recovery paths in the README or the most relevant `PRDS/` or `docs/` file. Do not assume a future agent or developer will infer them from code.
 - When introducing a non-standard or non-straightforward workflow that is likely to be reused, create or update a repository-local skill under `.agents/skills/<name>/SKILL.md` and validate it with the skill validator.
 
