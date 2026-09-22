@@ -2,6 +2,7 @@
 // Prerequisites and the intentionally isolated flag toggles are documented in
 // docs/open-signup-local-acceptance.md. This script refuses hosted targets.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 
@@ -11,6 +12,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const actor = process.env.PLAYWRIGHT_FLAG_ACTOR;
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
 const password = process.env.PLAYWRIGHT_PASSWORD || "local-open-signup-test-123";
+const localDbContainer = process.env.PLAYWRIGHT_LOCAL_DB_CONTAINER || "supabase_db_solosheet-local";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const requestTimeoutMs = 15_000;
 const maxResponseBytes = 1024 * 1024;
@@ -34,6 +36,9 @@ if (!serviceKey || serviceKey.trim() !== serviceKey ||
   throw new Error("Local Supabase anon and service-role keys are required without surrounding whitespace");
 }
 if (!uuidPattern.test(actor ?? "")) throw new Error("PLAYWRIGHT_FLAG_ACTOR must be a local active administrator UUID");
+if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(localDbContainer)) {
+  throw new Error("PLAYWRIGHT_LOCAL_DB_CONTAINER must be a simple local Docker container name");
+}
 
 const serviceHeaders = {
   apikey: serviceKey,
@@ -142,6 +147,49 @@ async function deleteUser(id) {
   await jsonRequest(`/auth/v1/admin/users/${id}`, { method: "DELETE" });
 }
 
+async function readProfile(id) {
+  const result = await jsonRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(id)}&select=id,email,credits,trial_granted_at`);
+  if (!Array.isArray(result) || result.length > 1) throw new Error("Local profile lookup returned an invalid response");
+  return result[0] ?? null;
+}
+
+async function assertProfile(id, scenario) {
+  const profile = await readProfile(id);
+  assert.ok(profile, "Verified local Auth user must have a profile");
+  assert.equal(profile.id, id);
+  assert.equal(profile.email, scenario.email);
+  assert.equal(profile.credits, scenario.credits);
+  assert.equal(profile.trial_granted_at === null, scenario.credits === 0);
+}
+
+function removeProfileForRecovery(id) {
+  // Simulate a historical signup failure through the local database owner. The
+  // production repair RPC itself remains self-scoped and browser-callable.
+  const result = spawnSync("docker", [
+    "exec", localDbContainer,
+    "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
+    "-c", `DELETE FROM public.profiles WHERE id = '${id}'::uuid`,
+  ], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error("Could not prepare the local missing-profile recovery fixture");
+}
+
+async function repairProfile(email) {
+  const session = await jsonRequest("/auth/v1/token?grant_type=password", {
+    method: "POST",
+    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    body: JSON.stringify({ email, password }),
+  });
+  if (typeof session?.access_token !== "string" || session.access_token === "") {
+    throw new Error("Local password sign-in did not return an access token");
+  }
+  const result = await jsonRequest("/rest/v1/rpc/repair_missing_profile", {
+    method: "POST",
+    headers: { apikey: anonKey, Authorization: `Bearer ${session.access_token}` },
+    body: "{}",
+  });
+  assert.deepEqual(result, { status: "repaired" });
+}
+
 let blockedRemoteRequestCount = 0;
 
 async function createLocalContext(browser) {
@@ -177,7 +225,7 @@ async function createLocalContext(browser) {
 async function verifyDashboard(browser, scenario) {
   const context = await createLocalContext(browser);
   const page = await context.newPage();
-  try {
+  async function signInAndAssertDashboard() {
     await page.goto(`${appOrigin}/login`);
     await page.getByLabel("Email").fill(scenario.email);
     await page.getByLabel("Password").fill(password);
@@ -185,8 +233,13 @@ async function verifyDashboard(browser, scenario) {
     await page.waitForURL("**/dashboard");
     await page.getByRole("heading", { name: /welcome/i }).waitFor();
     await page.getByText(new RegExp(`^${scenario.credits} credits$`, "i")).first().waitFor();
+  }
+  try {
+    await signInAndAssertDashboard();
 
-    const upload = page.getByRole("button", { name: /upload & generate/i });
+    const upload = page.getByRole("button", {
+      name: scenario.credits === 0 ? /upload & generate/i : /initiate upload/i,
+    });
     if (scenario.credits === 0) {
       assert.equal(await upload.isDisabled(), true);
       await page.getByText(/your account is active\. add credits/i).waitFor();
@@ -210,6 +263,9 @@ async function verifyDashboard(browser, scenario) {
       assert.equal(await upload.isEnabled(), true);
     }
 
+    await page.getByRole("button", { name: /sign out/i }).click();
+    await page.waitForURL("**/login");
+    await signInAndAssertDashboard();
     await page.getByRole("button", { name: /sign out/i }).click();
     await page.waitForURL("**/login");
   } finally {
@@ -247,10 +303,24 @@ try {
 
   for (const scenario of scenarios) {
     await setFlag(scenario.enabled, expectedFlag);
-    createdUserIds.push(await createUser(scenario.email));
+    const userId = await createUser(scenario.email);
+    createdUserIds.push(userId);
+    await assertProfile(userId, scenario);
     await verifyDashboard(browser, scenario);
-    console.log(`PASS ${scenario.enabled ? "On" : "Off"} ${scenario.email.endsWith(".edu") ? ".edu" : "non-.edu"}: ${scenario.credits} credit(s)`);
+    console.log(`PASS ${scenario.enabled ? "On" : "Off"} ${scenario.email.endsWith(".edu") ? ".edu" : "non-.edu"}: profile, ${scenario.credits} credit(s), logout, repeat login`);
   }
+
+  await setFlag(false, expectedFlag);
+  const recoveryScenario = { email: `task5-recovery-${suffix}@example.com`, credits: 0 };
+  const recoveryUserId = await createUser(recoveryScenario.email);
+  createdUserIds.push(recoveryUserId);
+  await assertProfile(recoveryUserId, recoveryScenario);
+  removeProfileForRecovery(recoveryUserId);
+  assert.equal(await readProfile(recoveryUserId), null);
+  await repairProfile(recoveryScenario.email);
+  await assertProfile(recoveryUserId, recoveryScenario);
+  await verifyDashboard(browser, recoveryScenario);
+  console.log("PASS missing-profile recovery: repaired at zero credits, dashboard, logout, repeat login");
   assert.equal(blockedRemoteRequestCount, 0, "Browser acceptance attempted a non-loopback request");
   console.log("Local browser acceptance passed; Stripe Checkout was route-isolated and Gemini was not called");
 } catch (error) {

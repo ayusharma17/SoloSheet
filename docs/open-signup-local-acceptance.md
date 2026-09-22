@@ -47,7 +47,9 @@ Export the same local-only `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` values reported
 by `supabase status -o env`. Also export `PLAYWRIGHT_FLAG_ACTOR`; optionally set
 `PLAYWRIGHT_BASE_URL` and `PLAYWRIGHT_PASSWORD` when they differ from the
-documented loopback defaults. Do not print the values or mix targets.
+documented loopback defaults. `PLAYWRIGHT_LOCAL_DB_CONTAINER` defaults to
+`supabase_db_solosheet-local`; set it to the fresh local Supabase Postgres
+container when the local project ID differs. Do not print keys or mix targets.
 
 Confirm both target origins are loopback without printing any keys, install the
 browser once if necessary, then run:
@@ -59,13 +61,16 @@ npm run test:open-signup:browser
 
 The browser runner refuses non-loopback app or Supabase origins. It creates four
 unique, verified local Auth users, exercises both email classes under both flag
-states, confirms dashboard access and displayed balances, checks that the
+states, confirms each database profile and balance, checks dashboard access,
+verifies sign-out followed by a second successful login, and checks that the
 flag-Off zero-credit account sees disabled generation and an enabled purchase
-call to action, verifies sign-out, and checks the rendered launch-On offer. The
-Checkout request is intercepted locally, and unexpected non-loopback browser
-HTTP or WebSocket requests are blocked and fail the run. Service workers are
-disabled so they cannot bypass that isolation; no Stripe or Gemini request is
-made.
+call to action. It also deletes one disposable local profile as the database
+owner, invokes the authenticated self-repair RPC, proves the replacement has
+zero credits and no trial marker, and repeats the dashboard/logout/login flow.
+The Checkout request is intercepted locally, and unexpected non-loopback
+browser HTTP or WebSocket requests are blocked and fail the run. Service workers
+are disabled so they cannot bypass that isolation; no Stripe or Gemini request
+is made.
 
 The runner validates the original flag response before making any mutation,
 deletes its Auth fixtures, and restores the original local flag in a `finally`
