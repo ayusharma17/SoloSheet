@@ -148,47 +148,56 @@ function createRpcClient({ origin, serviceRoleKey, fetchImpl, requestTimeoutMs }
   if (typeof fetchImpl !== "function") fail("NETWORK_ERROR");
 
   async function call(functionName, payload) {
-    let response;
+    // AbortSignal.timeout() uses an unref'ed timer on Node 22, so a stalled CLI
+    // request can let the process exit before the abort fires. A normal timer
+    // keeps the process alive until the request settles or reaches its deadline.
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(), requestTimeoutMs);
     try {
-      response = await fetchImpl(`${origin}/rest/v1/rpc/${functionName}`, {
-        method: "POST",
-        headers: {
-          apikey: serviceRoleKey,
-          authorization: `Bearer ${serviceRoleKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        redirect: "error",
-        signal: AbortSignal.timeout(requestTimeoutMs),
-      });
-    } catch {
-      fail("NETWORK_ERROR");
-    }
-
-    // Authorization status is authoritative even if an intermediary returns a
-    // malformed or misleading JSON body. In particular, it must never be
-    // possible for a 401/403 body containing `P0002` to enter recovery.
-    if (response.status === 401 || response.status === 403) {
-      fail("AUTHORIZATION_FAILED");
-    }
-
-    const body = await parseResponse(response);
-    if (!response.ok) {
-      const databaseCode = isRecord(body) && Object.hasOwn(body, "code") && typeof body.code === "string"
-        ? body.code
-        : null;
-      // PostgREST maps PostgreSQL's P0* PL/pgSQL error class to HTTP 500.
-      // Require both values so a generic 500 or a misleading code at another
-      // status cannot enter the intentional recovery path.
-      if (response.status === MISSING_ROW_HTTP_STATUS && databaseCode === MISSING_ROW_CODE) {
-        fail("FLAG_ROW_MISSING");
+      let response;
+      try {
+        response = await fetchImpl(`${origin}/rest/v1/rpc/${functionName}`, {
+          method: "POST",
+          headers: {
+            apikey: serviceRoleKey,
+            authorization: `Bearer ${serviceRoleKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          redirect: "error",
+          signal: timeoutController.signal,
+        });
+      } catch {
+        fail("NETWORK_ERROR");
       }
-      if (databaseCode === "42501") {
+
+      // Authorization status is authoritative even if an intermediary returns a
+      // malformed or misleading JSON body. In particular, it must never be
+      // possible for a 401/403 body containing `P0002` to enter recovery.
+      if (response.status === 401 || response.status === 403) {
         fail("AUTHORIZATION_FAILED");
       }
-      fail("RPC_FAILED");
+
+      const body = await parseResponse(response);
+      if (!response.ok) {
+        const databaseCode = isRecord(body) && Object.hasOwn(body, "code") && typeof body.code === "string"
+          ? body.code
+          : null;
+        // PostgREST maps PostgreSQL's P0* PL/pgSQL error class to HTTP 500.
+        // Require both values so a generic 500 or a misleading code at another
+        // status cannot enter the intentional recovery path.
+        if (response.status === MISSING_ROW_HTTP_STATUS && databaseCode === MISSING_ROW_CODE) {
+          fail("FLAG_ROW_MISSING");
+        }
+        if (databaseCode === "42501") {
+          fail("AUTHORIZATION_FAILED");
+        }
+        fail("RPC_FAILED");
+      }
+      return body;
+    } finally {
+      clearTimeout(timeout);
     }
-    return body;
   }
 
   return {
