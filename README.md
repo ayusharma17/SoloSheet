@@ -148,6 +148,13 @@ described in [the database guide](docs/database-bootstrap.md).
 
 ## Public deployment notes
 
+Production builds intentionally disable Turbopack's filesystem cache through
+`turbopackFileSystemCacheForBuild: false` in `next.config.ts`. Next.js 16.3 can
+serialize server-only environment values into `.next/cache/turbopack`, which
+Netlify scans as generated build output. Do not re-enable the build cache until
+a clean Netlify build confirms those values are no longer written there; keep
+secret scanning enabled rather than excluding server credential names.
+
 The in-app Terms and Privacy Policy are operational starter documents, not a
 substitute for review based on the operator's jurisdiction, contact details,
 retention promises, and production vendor settings. Review them before accepting

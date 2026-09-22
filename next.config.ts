@@ -49,6 +49,12 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    // Next 16.3's Turbopack build cache can serialize server-only environment
+    // values into .next/cache. Netlify scans that generated cache as build
+    // output, so keep production filesystem caching disabled.
+    turbopackFileSystemCacheForBuild: false,
+  },
   images: {
     remotePatterns: [
       {
