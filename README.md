@@ -90,9 +90,16 @@ Storage, and mocks only the Gemini extraction response so no hosted provider or
 production data is contacted. It verifies the same request ID is retained for
 an ambiguous retry and that a terminal restart cleans up the temporary upload.
 
+For the open-signup release, `npm run verify:open-signup` runs focused
+application/CLI coverage plus the complete disposable-database suite. A
+separate loopback-only browser runner covers `.edu` and non-`.edu` accounts
+under both flag states without calling Stripe or Gemini. See
+[open-signup local acceptance](docs/open-signup-local-acceptance.md) for setup,
+the acceptance matrix, cleanup behavior, and deployment-evidence boundaries.
+
 See [administrator operations](docs/admin-operations.md) for first-admin
-bootstrap, allowlist changes, and hold release. These operations are never
-available to browser clients.
+bootstrap, allowlist changes, hold release, and the non-`.edu` trial-credit
+flag. These operations are never available to browser clients.
 
 To have an agent run the authenticated browser test, ask: `Use the local-testing skill, start the local Supabase and Next.js services, authenticate the local Playwright account, and verify dashboard access, guide modes, overflow reporting, and printed PDF page counts.`
 

@@ -36,3 +36,23 @@ the backup when rollback is not automatic.
 The files under `supabase/migrations/` reflect hosted forward-migration history;
 their timestamps are not a supported fresh-install path. The generated
 bootstrap is the canonical fresh-install artifact.
+
+For an existing database at phase 16, apply these forward migrations in order:
+
+1. `supabase/migrations/20260918123000_phase17_open_signup_trial_flag.sql`
+2. `supabase/migrations/20260918124000_phase18_profile_recovery.sql`
+
+Phase 17 must commit before Phase 18, and both must commit before deploying the
+open-signup application/callback. Phase 17 defaults the launch flag to On,
+replaces the old `.edu` account restriction, and preserves all existing profile
+balances and trial timestamps. Phase 18 adds `repair_missing_profile()`. The RPC repairs
+only the authenticated caller when its Auth email is verified. It creates a
+zero-credit profile with no trial marker, records one privacy-minimized
+`profile.repaired` audit event, and leaves existing profiles unchanged. If the
+callback cannot confirm repair, it clears only that callback's local session and
+fails closed instead of redirecting to the dashboard.
+
+After the application is deployed in a non-production environment, use the
+maintainer CLI in `docs/admin-operations.md` to confirm the launch flag is On,
+then follow `docs/open-signup-local-acceptance.md`. Repository migration files
+and local test results do not establish the hosted project's applied state.

@@ -15,4 +15,6 @@ export const databaseMigrations = [
   "migration_phase14_storage_abuse_controls.sql",
   "migration_phase15_storage_upload_preflight.sql",
   "migration_phase16_auth_confirmation_compatibility.sql",
+  "migration_phase17_open_signup_trial_flag.sql",
+  "migration_phase18_profile_recovery.sql",
 ];

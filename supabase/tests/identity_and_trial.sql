@@ -33,11 +33,15 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Unverified ineligible user received an application profile';
   END IF;
-  BEGIN
-    UPDATE auth.users SET email_confirmed_at = now()
-    WHERE id = 'c0000000-0000-4000-8000-000000000003';
-    RAISE EXCEPTION 'Non-educational email confirmation succeeded';
-  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  UPDATE auth.users SET email_confirmed_at = now()
+  WHERE id = 'c0000000-0000-4000-8000-000000000003';
+  IF (SELECT credits FROM public.profiles
+      WHERE id = 'c0000000-0000-4000-8000-000000000003') IS DISTINCT FROM 1
+    OR (SELECT metadata->>'eligibility' FROM public.audit_events
+        WHERE subject_user_id = 'c0000000-0000-4000-8000-000000000003'
+          AND event_type = 'trial.granted') IS DISTINCT FROM 'non_edu_launch_promotion' THEN
+    RAISE EXCEPTION 'Delayed non-educational confirmation did not receive the launch trial';
+  END IF;
 
   INSERT INTO auth.users (id, email, email_confirmed_at)
   VALUES ('c0000000-0000-4000-8000-000000000004', 'unverified@school.edu', NULL);
@@ -52,7 +56,7 @@ BEGIN
   UPDATE auth.users SET email_confirmed_at = email_confirmed_at
   WHERE id = 'c0000000-0000-4000-8000-000000000004';
   IF (SELECT credits FROM public.profiles
-      WHERE id = 'c0000000-0000-4000-8000-000000000004') <> 1
+      WHERE id = 'c0000000-0000-4000-8000-000000000004') IS DISTINCT FROM 1
     OR (SELECT count(*) FROM public.audit_events
         WHERE subject_user_id = 'c0000000-0000-4000-8000-000000000004'
           AND event_type = 'trial.granted') <> 1 THEN

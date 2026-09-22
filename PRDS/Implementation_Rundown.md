@@ -29,9 +29,13 @@ The entire platform adheres to a **Swiss Minimalist / Brutalist** aesthetic to s
 
 The database focuses on strong isolation and automatic provisioning:
 
-- **`profiles`:** Matches `auth.users` 1-to-1. Tracks remaining `credits` (default 1).
+- **`profiles`:** Matches `auth.users` 1-to-1. Tracks remaining `credits`
+  (safe schema default 0; provisioning assigns the initial balance explicitly).
 - **`course_materials`:** Stores the generated cheat sheets linked to a user. Contains `course_name`, `extracted_json`, `target_pages`, and `user_directive`.
-- **`admin_whitelist`:** The private, canonical list of administrator emails that bypasses domain restrictions and is changed only through an audited server workflow.
+- **`admin_whitelist`:** The private, canonical list of administrator emails;
+  it controls administrator status and is changed only through an audited server workflow.
+- **`private_feature_flags`:** Private singleton configuration for prospective
+  non-`.edu` trial grants, read and changed only through audited server RPCs.
 - **`audit_events`:** An append-only application audit trail for trial grants and sensitive administrator/payment actions.
 - **Row Level Security (RLS):** User-owned product data is isolated by authenticated user ID; administrator, audit, hold, and payment tables are inaccessible to ordinary clients.
 
@@ -39,19 +43,32 @@ The database focuses on strong isolation and automatic provisioning:
 
 ## 4. Authentication & Identity Guard
 
-SoloSheet enforces an incredibly strict entry gateway designed to force conversion from trial students:
+SoloSheet separates verified account eligibility from promotional-credit policy:
 
-- **Google OAuth ONLY:** Users authenticate specifically via their institutional Google accounts.
-- **Domain Whitelist (`.edu` lock):**
-  - Configured at the Google Cloud Console level (OAuth Consent Screen restrictions).
-  - Backed up by a Supabase SQL Trigger (`handle_new_user`) that verifies the `new.email` ends in `.edu` or is present in the `admin_whitelist`. Any other email throws an exception, preventing profile creation.
+- **Google OAuth:** Users authenticate with a verified Google identity; any
+  valid email domain can create an account.
+- **Database provisioning:** `handle_new_user` validates the authoritative Auth
+  email, always creates an ordinary verified profile, and independently assigns
+  a promotional credit according to email class and the private launch flag.
+- **Historical recovery:** the callback invokes a self-scoped repair RPC for
+  verified identities left without profiles by the former domain restriction;
+  repair creates a zero-credit profile and never backfills a promotion.
 - **Identity Mapping:** Profiles are keyed by the Supabase Auth user ID. The same Supabase identity retains one profile, but separate Google accounts or institutional aliases are not guessed or merged.
 
 ---
 
 ## 5. Trial credit controls
 
-New verified `.edu` accounts receive exactly **1 trial credit** in the profile-creation transaction. Allowlisted administrators receive no finite placeholder balance; their unlimited status is resolved from the canonical database allowlist. The extraction service atomically reserves student credits before provider work, preventing repeated clicks or concurrent requests from spending the same credit more than once. SoloSheet does not collect or use browser/device fingerprints; `.edu` eligibility and atomic credit reservation are the MVP anti-abuse controls. Shared rate limiting is tracked separately as post-MVP reliability work.
+New verified `.edu` accounts receive exactly **1 trial credit** in the
+profile-creation transaction. New non-`.edu` accounts receive one while the
+audited `non_edu_trial_credits_enabled` flag is On and zero while it is Off; in
+both cases the account remains usable and purchase-capable. Flag changes affect
+only later profile creation. Allowlisted administrators receive no finite
+placeholder balance; their unlimited status is resolved from the canonical
+database allowlist. The extraction service atomically reserves credits before
+provider work, preventing repeated clicks or concurrent requests from spending
+the same credit more than once. SoloSheet does not collect or use browser/device
+fingerprints. Shared rate limiting is tracked separately as post-MVP reliability work.
 
 ---
 

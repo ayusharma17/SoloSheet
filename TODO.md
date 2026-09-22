@@ -1,6 +1,10 @@
 # TODO
 
-## P0 — Highest priority: recoverable extraction attempts
+## P0 — Highest priority
+
+- [x] **Implement signup eligibility separately from free-credit eligibility:** [open signup and configurable trial-credit eligibility](PRDS/Open_Signup_and_Trial_Credit_Flag_PRD.md) is implemented with local regression coverage and a local browser harness. Hosted migration state, real Google OAuth, and deployed launch-copy verification remain unverified release checks; see [local acceptance](docs/open-signup-local-acceptance.md).
+
+### Recoverable extraction attempts
 
 - [ ] Move multi-file extraction out of the synchronous Next.js request and into a durable background job that can run beyond Netlify's synchronous function limit. Return promptly, persist queued/running/per-file/succeeded/failed state, expose honest progress through polling, enforce an overall deadline, and recover after refresh or worker failure. Verify the complete production flow with one file and at least eight files.
 - [ ] Make preserved uploads genuinely recoverable across modal closure, refresh, sign-out, and deployment. Persist a server-backed upload/extraction session containing the request ID and owned storage paths (never signed URLs), show it on the dashboard with **Resume retry** and **Discard uploads** actions, refresh signed URLs when resuming, and reuse the original idempotent request without charging twice. Successful, explicitly failed, expired, and discarded sessions must release their objects and quota deterministically. The manual **Clear saved temporary uploads** action is only an emergency escape hatch, not completion of this item.
@@ -68,7 +72,7 @@ Backlog from the project overview and [project review](PROJECT_REVIEW.md). Prior
 - [ ] After launch, monitor privacy-minimized aggregate signup and extraction metrics and evaluate additional controls only if abuse becomes measurable.
 - [x] Reconcile the anti-abuse PRD with SQL before implementing policy changes: review holds versus immediate credit removal, trial allocation, and payment-provider naming.
 - [x] Consolidate administrator identity across environment configuration, SQL, and UI credit behavior.
-- [ ] Complete and verify educational-email eligibility and trial allocation through the actual signup flow.
+- [ ] Apply and verify open signup and trial allocation through the actual hosted Google OAuth flow for `.edu` and non-`.edu` test identities. Confirm the Phase 17/18 migration order and launch-On flag first; local implementation and regression coverage are complete.
 - [x] Implement Stripe Checkout and credit purchases according to the current PRD, passing the authenticated Supabase user ID as the Checkout Session's `client_reference_id`.
 - [x] Add authenticated payment fulfillment with verified webhook signatures, duplicate-event protection, server-controlled credit amounts, and the agreed refund handling.
 - [x] Add tests for signup eligibility, administrator exceptions, and duplicate or invalid payment events.

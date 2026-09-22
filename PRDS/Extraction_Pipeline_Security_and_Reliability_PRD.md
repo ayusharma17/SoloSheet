@@ -128,12 +128,17 @@ database, back it up and apply only the unapplied forward phases in this order:
 13. `supabase/migration_phase13_payment_and_admin_hardening.sql`
 14. `supabase/migration_phase14_storage_abuse_controls.sql`
 15. `supabase/migration_phase15_storage_upload_preflight.sql`
+16. `supabase/migration_phase16_auth_confirmation_compatibility.sql`
+17. `supabase/migration_phase17_open_signup_trial_flag.sql`
+18. `supabase/migration_phase18_profile_recovery.sql`
 
 Phase 6 secures legacy credit functions and access policies. Phase 7 adds the
 durable `extraction_requests` reservation protocol. Phase 8 retires device
 fingerprinting, and phase 9 adds the private administrator, audit, account-hold,
-and Stripe ledger foundation. Phase 10 makes that administrator source canonical,
-enforces verified educational-email eligibility, and grants the one-time trial.
+and Stripe ledger foundation. Phase 10 historically made that administrator
+source canonical, enforced verified educational-email eligibility, and granted
+the one-time trial. Phase 16 made provisioning compatible with Supabase's
+delayed email-confirmation lifecycle; Phase 17 supersedes only the old domain policy.
 Phase 11 resolves administrator bypass and account holds inside the atomic
 extraction transaction. SQL files describe intended deployment; successful local
 execution does not prove hosted deployment. Phase 12 adds pending purchase,
@@ -151,6 +156,10 @@ Phase 15 adapts the reservation policy to managed Storage's preflight metadata:
 the service supplies HTTP `contentLength` before upload and writes final `size`
 only after storage succeeds. The policy binds that server-supplied length to the
 reserved file size with a narrow allowance for multipart framing.
+Phase 17 opens profile creation to every valid verified email, adds the private
+prospective non-`.edu` trial flag, and preserves existing balances. Phase 18 adds
+the authenticated, zero-credit repair path for historical identities missing a
+profile. Apply both before deploying the current callback.
 
 ### Server and client boundaries
 

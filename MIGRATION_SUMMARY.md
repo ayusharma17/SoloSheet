@@ -6,6 +6,15 @@
 > [`docs/database-bootstrap.md`](docs/database-bootstrap.md). Existing databases
 > must apply only reviewed, unapplied forward migrations.
 
+> Current schema note (2026-09-21): the storage migration described below is
+> historical. The current ordered schema continues through Phase 16 (delayed
+> Auth confirmation compatibility), Phase 17 (open verified signup plus the
+> audited prospective non-`.edu` trial flag), and Phase 18 (zero-credit
+> authenticated profile repair). Apply those forward migrations
+> in order before deploying the current auth callback. This repository does not
+> establish whether any hosted project has applied them; see
+> [`docs/open-signup-local-acceptance.md`](docs/open-signup-local-acceptance.md).
+
 ## Summary
 
 Successfully migrated CheatSheetAI from in-memory base64 file uploads to Supabase Storage, enabling support for files up to **200MB** (previously limited to ~5MB due to Vercel's body size restrictions).

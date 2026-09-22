@@ -6,11 +6,13 @@ import { useState } from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { BookOpen, Sparkles, Zap } from "lucide-react";
+import { authErrorMessage, displayedAuthError, parseAuthErrorCode, type AuthErrorCode } from "@/lib/auth-ui";
+import { LAUNCH_TRIAL_OFFER } from "@/lib/product-copy";
 
 function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const error = searchParams.get("error");
+  const errorCode = parseAuthErrorCode(searchParams.get("error"));
   const supabase = createClient();
   const supabaseHost = (() => {
     try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname; }
@@ -22,31 +24,58 @@ function LoginContent() {
   const [testPassword, setTestPassword] = useState("");
   const [testError, setTestError] = useState("");
   const [testLoading, setTestLoading] = useState(false);
+  const [loginError, setLoginError] = useState<AuthErrorCode | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [callbackErrorDismissed, setCallbackErrorDismissed] = useState(false);
+  const displayedError = displayedAuthError({
+    callbackError: errorCode,
+    attemptError: loginError,
+    callbackErrorDismissed,
+  });
 
   const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    setGoogleLoading(true);
+    setLoginError(null);
+    setCallbackErrorDismissed(true);
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (oauthError) {
+        setLoginError("oauth");
+        setGoogleLoading(false);
+      }
+    } catch {
+      setLoginError("oauth");
+      setGoogleLoading(false);
+    }
   };
 
   const handleTestLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTestLoading(true);
     setTestError("");
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: testEmail.trim(),
-      password: testPassword,
-    });
-    if (signInError) {
+    setLoginError(null);
+    setCallbackErrorDismissed(true);
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: testEmail.trim(),
+        password: testPassword,
+      });
+      if (signInError) {
+        setTestError("Test sign-in failed. Check the local test account.");
+        setTestLoading(false);
+        return;
+      }
+      router.replace("/dashboard");
+      router.refresh();
+    } catch {
       setTestError("Test sign-in failed. Check the local test account.");
       setTestLoading(false);
-      return;
     }
-    router.replace("/dashboard");
-    router.refresh();
   };
 
   return (
@@ -78,18 +107,21 @@ function LoginContent() {
         </div>
 
         {/* Error message */}
-        {error && (
-          <div className="mb-6 p-4 border-2 border-[#e60000] bg-red-50 text-[#e60000] text-sm font-bold uppercase tracking-tight text-left">
-            Error: Authentication failed. Please try again.
+        {displayedError && (
+          <div role="alert" className="mb-6 p-4 border-2 border-[#e60000] bg-red-50 text-[#e60000] text-sm font-bold tracking-tight text-left">
+            {authErrorMessage(displayedError)}
           </div>
         )}
 
         {/* Google Sign In Button */}
         {!isLocalSupabase && <button
+          type="button"
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] border-2 border-transparent transition-colors cursor-pointer"
+          disabled={googleLoading}
+          aria-busy={googleLoading}
+          className="w-full flex items-center justify-center gap-4 px-6 py-4 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] border-2 border-transparent transition-colors cursor-pointer disabled:cursor-wait disabled:opacity-60"
         >
-          <svg className="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
+          <svg aria-hidden="true" className="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
@@ -107,8 +139,14 @@ function LoginContent() {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
             />
           </svg>
-          Continue with Google
+          {googleLoading ? "Opening Google…" : "Continue with Google"}
         </button>}
+
+        {!isLocalSupabase && (
+          <p className="mt-4 text-sm font-medium text-neutral-600 leading-relaxed">
+            Sign in or create an account with any verified Google account. Launch offer: {LAUNCH_TRIAL_OFFER.toLowerCase()}; no card required.
+          </p>
+        )}
 
         {testAuthEnabled && (
           <form onSubmit={handleTestLogin} className="mt-8 border-t-2 border-neutral-200 pt-6 text-left">
@@ -117,7 +155,7 @@ function LoginContent() {
             <input id="test-email" type="email" required value={testEmail} onChange={(event) => setTestEmail(event.target.value)} className="w-full border-2 border-black px-3 py-2 mb-3" autoComplete="username" />
             <label className="block text-xs font-bold uppercase tracking-widest mb-2" htmlFor="test-password">Password</label>
             <input id="test-password" type="password" required value={testPassword} onChange={(event) => setTestPassword(event.target.value)} className="w-full border-2 border-black px-3 py-2 mb-3" autoComplete="current-password" />
-            {testError && <p className="mb-3 text-xs font-bold text-[#e60000]">{testError}</p>}
+            {testError && <p className="mb-3 text-xs font-bold text-[#e60000]" role="alert">{testError}</p>}
             <button type="submit" disabled={testLoading} className="w-full border-2 border-black px-4 py-3 font-bold uppercase tracking-widest disabled:opacity-50">
               {testLoading ? "Signing in…" : "Sign in to local test account"}
             </button>
@@ -144,8 +182,8 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-spin w-8 h-8 border-4 border-black border-t-transparent" />
+      <div className="min-h-screen flex items-center justify-center bg-white" role="status" aria-label="Loading sign-in">
+        <div aria-hidden="true" className="animate-spin w-8 h-8 border-4 border-black border-t-transparent" />
       </div>
     }>
       <LoginContent />

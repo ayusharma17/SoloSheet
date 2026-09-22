@@ -4,22 +4,31 @@
 
 This document defines the **target state**. It does not claim that every requirement is deployed.
 
-The codebase currently has an authenticated extraction route, database-backed administrator lookup, server-created Stripe Checkout and signature-verified webhook routes, plus forward SQL migrations for atomic credit and upload reservations, private audit records, verified-email eligibility, one-time trial provisioning, idempotent payment fulfillment, and payment review holds. Deployment of those migrations and live Stripe test-mode behavior are unverified. Rate limiting is separate post-MVP work.
+The codebase currently has an authenticated extraction route, database-backed administrator lookup, server-created Stripe Checkout and signature-verified webhook routes, plus forward SQL migrations for atomic credit and upload reservations, private audit records, open verified-email signup, configurable one-time trial provisioning, idempotent payment fulfillment, and payment review holds. Deployment of those migrations and live Stripe test-mode behavior are unverified. Rate limiting is separate post-MVP work.
 
 ## 1. Goal and scope
 
-SoloSheet offers one trial sheet to eligible students, then sells a $3.00 package of 10 credits through Stripe. The MVP should deter obvious credit farming through eligibility checks and atomic credit use without collecting device fingerprints.
+SoloSheet allows every verified Google identity to create an account. It offers
+one trial sheet to `.edu` users and, while the launch flag is On, to new
+non-`.edu` users, then sells a $3.00 package of 10 credits through Stripe. The
+MVP should deter obvious credit farming through prospective trial eligibility
+and atomic credit use without collecting device fingerprints.
 
-This policy applies to Google-authenticated users. It is not proof of active enrollment: an `.edu` address is only an eligibility signal. Support for non-US institutions or an explicit list of approved schools is a separate product decision.
+This policy applies to Google-authenticated users. It is not proof of active enrollment: an `.edu` address is only an unconditional trial-eligibility signal, never an account-eligibility requirement. Support for non-US institutions or an explicit list of approved schools is a separate product decision.
 
 ## 2. Authentication and identity
 
 ### 2.1 Eligibility enforcement
 
-- The server-side signup path is the source of truth for eligibility. It must reject non-`.edu` addresses unless the address is in a server-managed administrator allowlist.
-- Google or Supabase domain controls may be used as an additional convenience check, but they cannot be the only enforcement point and cannot implement database-based administrator exceptions.
-- The allowlist must be private: ordinary clients cannot read or change it. Adding or removing an entry requires a secure administrator workflow and an audit event.
-- Eligibility is evaluated from the verified identity returned by Supabase Auth, never from client-provided email fields.
+- The database signup path is the source of truth for verified account creation
+  and initial trial allocation. It accepts every valid, verified email domain.
+- Google or Supabase domain controls must not restrict otherwise valid
+  non-`.edu` accounts.
+- The administrator allowlist must be private: ordinary clients cannot read or
+  change it. Adding or removing an entry requires a secure workflow and audit
+  event; it controls administrator status, not ordinary account eligibility.
+- Account and trial eligibility are evaluated from the verified identity
+  returned by Supabase Auth, never from client-provided email fields.
 
 ### 2.2 Identity mapping
 
@@ -31,7 +40,11 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 
 ### 3.1 Trial credit policy
 
-- A new eligible non-admin profile receives exactly one trial credit.
+- A new non-admin `.edu` profile receives exactly one trial credit. A new
+  non-`.edu` profile receives one only when the private launch flag is On; when
+  it is Off the account is still created with zero credits and can purchase.
+- Flag changes are prospective and never recompute existing balances or trial
+  history. Historical missing-profile repair is zero-credit and non-promotional.
 - Credits are reserved atomically before extraction so concurrent requests cannot spend the same trial or paid credit twice.
 - SoloSheet does not collect, store, or use browser or device fingerprints for eligibility, trial decisions, or account review.
 - Monitor aggregate, privacy-minimized signup and extraction metrics before introducing any new anti-abuse control. Any future control requires its own documented policy and privacy review.
@@ -60,9 +73,13 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 
 ## 5. Acceptance criteria
 
-- [ ] An authenticated user with a non-`.edu` verified email cannot receive a profile or trial credit unless a server-managed allowlist entry exists; ordinary clients cannot read or modify that allowlist.
+- [ ] Every valid, verified Google identity can receive one profile regardless
+  of domain; ordinary clients cannot read or modify private trial configuration
+  or the administrator allowlist.
 - [ ] The same Supabase Auth identity always resolves to one profile and one credit balance. Separate Google accounts are not falsely merged from email similarity.
-- [ ] A new eligible non-admin profile receives exactly one trial credit, and concurrent extraction attempts cannot spend that credit more than once.
+- [ ] A new `.edu` non-admin receives exactly one trial credit in either flag
+  state; a new non-`.edu` non-admin receives one only while the flag is On, and
+  concurrent extraction attempts cannot spend a credit more than once.
 - [ ] No browser or device fingerprint is collected, stored, or used in signup, trial, or review workflows.
 - [ ] Administrator unlimited status is enforced by the credit reservation transaction, survives concurrent requests, and produces an audit record for each bypassed extraction.
 - [ ] A user cannot create a Stripe Checkout Session for another user, alter the configured price/package, or receive credits before the session is paid.
@@ -71,4 +88,10 @@ This policy applies to Google-authenticated users. It is not proof of active enr
 
 ## 6. Delivery prerequisites
 
-Before declaring this PRD complete, apply and verify all relevant Supabase migrations in a non-production environment, add regression coverage for the acceptance criteria, and exercise Stripe in test mode. Update product copy that still advertises three free credits when the one-credit trial is actually deployed. Shared rate limiting and signup-velocity controls are separate post-MVP work tracked in `TODO.md`.
+Before declaring this PRD deployed, apply and verify all relevant Supabase
+migrations through Phase 18 in a non-production environment, confirm the launch
+flag is On, run the open-signup acceptance matrix, and exercise Google OAuth and
+Stripe in their test modes. Local implementation and regression coverage do not
+prove hosted state. Before later disabling the flag, deploy copy that no longer
+promises a credit to every account. Shared rate limiting and signup-velocity
+controls are separate post-MVP work tracked in `TODO.md`.

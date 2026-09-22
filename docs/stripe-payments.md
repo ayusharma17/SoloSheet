@@ -22,7 +22,7 @@ APP_URL=https://your-app.example
 ```
 
 `APP_URL` may use HTTP only in local development. Apply all ordered Supabase
-migrations through `migration_phase16_auth_confirmation_compatibility.sql`
+migrations through `migration_phase18_profile_recovery.sql`
 before deploying the matching routes.
 
 ## Webhook endpoint

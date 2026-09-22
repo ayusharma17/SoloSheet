@@ -1,8 +1,17 @@
 -- Minimal Supabase stand-ins for disposable PostgreSQL regression tests only.
 -- This is NOT an application migration or a substitute for deployed RLS checks.
-CREATE ROLE anon NOLOGIN;
-CREATE ROLE authenticated NOLOGIN;
-CREATE ROLE service_role NOLOGIN BYPASSRLS;
+DO $$ BEGIN
+  CREATE ROLE anon NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE ROLE authenticated NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE ROLE service_role NOLOGIN BYPASSRLS;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE SCHEMA auth;
 CREATE SCHEMA storage;
 CREATE TABLE auth.users (

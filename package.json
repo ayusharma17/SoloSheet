@@ -8,11 +8,15 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
-    "test:unit": "node tests/extraction-credits.test.mjs && node tests/extraction-validation.test.cjs && node tests/admin.test.mjs && node tests/account-holds.test.mjs && node tests/payments.test.mjs && node tests/stripe-webhook.test.mjs && node tests/http-security.test.mjs && node tests/storage-reservations.test.mjs",
+    "test:unit": "node tests/extraction-credits.test.mjs && node tests/extraction-validation.test.cjs && node tests/admin.test.mjs && node tests/account-holds.test.mjs && node tests/payments.test.mjs && node tests/stripe-webhook.test.mjs && node tests/http-security.test.mjs && node tests/storage-reservations.test.mjs && node tests/auth-profile-recovery.test.mjs && node tests/account-access-copy.test.mjs && node tests/trial-credit-flag-cli.test.mjs",
     "test:database": "node scripts/test-local-database.mjs",
     "test:e2e:local": "node scripts/playwright-local-e2e.mjs",
+    "test:open-signup": "node tests/auth-profile-recovery.test.mjs && node tests/account-access-copy.test.mjs && node tests/trial-credit-flag-cli.test.mjs",
+    "test:open-signup:browser": "node scripts/verify-open-signup-browser.mjs",
+    "verify:open-signup": "npm run test:open-signup && npm run test:database",
     "fixtures:generate": "node scripts/generate-synthetic-fixtures.mjs",
     "db:bootstrap:build": "node scripts/build-database-bootstrap.mjs",
+    "trial-flag": "node scripts/manage-trial-credit-flag.mjs",
     "check": "npm run lint && npm run typecheck && npm run test:unit"
   },
   "dependencies": {

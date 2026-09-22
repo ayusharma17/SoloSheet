@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BookOpen, Sparkles, Zap, FileText, ArrowRight, Layers } from "lucide-react";
+import { LAUNCH_TRIAL_OFFER } from "@/lib/product-copy";
 
 export default function HomePage() {
   return (
@@ -50,7 +51,7 @@ export default function HomePage() {
               <ArrowRight className="w-5 h-5" />
             </Link>
             <span className="text-sm font-bold uppercase tracking-widest text-neutral-500">
-              1 free credit <span className="text-black mx-2">•</span> No card required
+              {LAUNCH_TRIAL_OFFER} <span className="text-black mx-2">•</span> No card required
             </span>
           </div>
         </section>

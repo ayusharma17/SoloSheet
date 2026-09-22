@@ -41,6 +41,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     isAdminUser(user),
     isAccountHeld(user.id),
   ]);
+  const credits = !profileResult.error &&
+    Number.isInteger(profileResult.data?.credits) &&
+    Number(profileResult.data?.credits) >= 0
+    ? Number(profileResult.data?.credits)
+    : null;
 
   return (
     <DashboardClient
@@ -48,7 +53,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         fullName: user.user_metadata?.full_name ?? user.user_metadata?.name ?? "Student",
         avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? "",
       }}
-      credits={profileResult.data?.credits ?? 0}
+      credits={credits}
       isAdmin={admin}
       isAccountHeld={accountHeld}
       checkoutStatus={checkoutStatus}

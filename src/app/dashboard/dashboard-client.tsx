@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import {
   BookOpen,
@@ -15,6 +15,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import UploadModal from "./upload-modal";
+import { dashboardAccessState, purchaseStatusUpdate } from "@/lib/dashboard-access";
 
 interface CourseMaterial {
   id: string;
@@ -29,7 +30,7 @@ interface DashboardClientProps {
     fullName: string;
     avatarUrl: string;
   };
-  credits: number;
+  credits: number | null;
   isAdmin: boolean;
   isAccountHeld: boolean;
   checkoutStatus: "success" | "canceled" | null;
@@ -51,6 +52,7 @@ export default function DashboardClient({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  const [isRefreshPending, startRefreshTransition] = useTransition();
   const [currentCredits, setCurrentCredits] = useState(credits);
   const [currentHeld, setCurrentHeld] = useState(isAccountHeld);
   const [purchaseState, setPurchaseState] = useState<"confirming" | "paid" | "held" | "reversed" | "unconfirmed">(
@@ -77,28 +79,12 @@ export default function DashboardClient({
           { cache: "no-store", signal: controller.signal },
         );
         const payload: unknown = await response.json();
-        if (response.ok && payload && typeof payload === "object") {
-          const status = (payload as { status?: unknown }).status;
-          const updatedCredits = (payload as { credits?: unknown }).credits;
-          const accountHeld = (payload as { accountHeld?: unknown }).accountHeld;
-          if (Number.isInteger(updatedCredits) && Number(updatedCredits) >= 0) {
-            setCurrentCredits(Number(updatedCredits));
-          }
-          if (typeof accountHeld === "boolean") setCurrentHeld(accountHeld);
-          if (accountHeld === true) {
-            setPurchaseState("held");
-            return;
-          }
-          if (status === "paid") {
-            setPurchaseState("paid");
-            return;
-          }
-          if (["refunded", "disputed", "chargeback"].includes(String(status))) {
-            setPurchaseState("reversed");
-            return;
-          }
-          if (["failed", "expired", "canceled"].includes(String(status))) {
-            setPurchaseState("unconfirmed");
+        const update = response.ok ? purchaseStatusUpdate(payload) : null;
+        if (update) {
+          setCurrentCredits(update.credits);
+          setCurrentHeld(update.isAccountHeld);
+          if (update.state !== "pending") {
+            setPurchaseState(update.state);
             return;
           }
         }
@@ -154,8 +140,14 @@ export default function DashboardClient({
     }
   };
 
-  const isOutOfCredits = !isAdmin && currentCredits <= 0;
-  const generationBlocked = currentHeld || isOutOfCredits;
+  const accessState = dashboardAccessState({
+    isAdmin,
+    isAccountHeld: currentHeld,
+    credits: currentCredits,
+  });
+  const isOutOfCredits = accessState === "out_of_credits";
+  const creditUnavailable = accessState === "credit_unavailable";
+  const generationBlocked = !["ready", "admin"].includes(accessState);
   const sheetsCreated = materials.length;
   const lastActivity = materials.length > 0
     ? new Date(materials[0].created_at).toLocaleDateString("en-US", {
@@ -185,10 +177,12 @@ export default function DashboardClient({
             <div className="hidden sm:flex items-center gap-2 px-3 py-1 border-2 border-black">
               <CreditCard className="w-4 h-4 text-black" />
               <span className="text-xs font-bold uppercase tracking-tight">
-                <span className={isAdmin || currentCredits > 0 ? "text-black" : "text-[#e60000]"}>
-                  {isAdmin ? "∞" : currentCredits}
+                <span className={isAdmin || (currentCredits !== null && currentCredits > 0) ? "text-black" : "text-[#e60000]"}>
+                  {isAdmin ? "∞" : currentCredits ?? "—"}
                 </span>{" "}
-                <span className="text-neutral-500">{isAdmin ? "unlimited" : "credits"}</span>
+                <span className="text-neutral-500">
+                  {isAdmin ? "unlimited" : creditUnavailable ? "unavailable" : "credits"}
+                </span>
               </span>
             </div>
 
@@ -215,7 +209,9 @@ export default function DashboardClient({
 
             {/* Sign Out */}
             <button
+              type="button"
               onClick={handleSignOut}
+              aria-label="Sign out"
               className="p-2 border-2 border-transparent hover:border-black transition-colors cursor-pointer"
               title="Sign Out"
             >
@@ -274,15 +270,15 @@ export default function DashboardClient({
                 <CreditCard className="w-5 h-5 text-black" />
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`text-6xl font-black tracking-tighter ${isAdmin || currentCredits > 0 ? "text-black" : "text-[#e60000]"}`}>
-                  {isAdmin ? "∞" : currentCredits}
+                <span className={`text-6xl font-black tracking-tighter ${isAdmin || (currentCredits !== null && currentCredits > 0) ? "text-black" : "text-[#e60000]"}`}>
+                  {isAdmin ? "∞" : currentCredits ?? "—"}
                 </span>
               </div>
             </div>
             <div className="mt-6 border-2 border-black h-3 w-full bg-white relative">
               <div
                 className="absolute top-0 left-0 h-full bg-[#e60000] transition-all duration-500"
-                style={{ width: isAdmin ? "100%" : `${Math.min((currentCredits / 10) * 100, 100)}%` }}
+                style={{ width: isAdmin ? "100%" : `${Math.min(((currentCredits ?? 0) / 10) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -331,11 +327,11 @@ export default function DashboardClient({
         </div>
 
         {/* Create Cheat Sheet CTA */}
-        <div className="swiss-card p-10 bg-[#f4f4f5]">
+        <div className="swiss-card p-6 sm:p-10 bg-[#f4f4f5]">
           <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
             <div className="flex-1">
-              <h2 className="text-3xl font-black uppercase tracking-tight flex items-center gap-3">
-                <Sparkles className="w-6 h-6 text-[#e60000]" />
+              <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight flex items-start gap-3">
+                <Sparkles aria-hidden="true" className="w-6 h-6 shrink-0 text-[#e60000]" />
                 Create New Sheet
               </h2>
               <p className="text-neutral-600 mt-4 text-base font-medium max-w-2xl leading-relaxed">
@@ -347,15 +343,21 @@ export default function DashboardClient({
               {generationBlocked ? (
                 <div className="space-y-3">
                   <button
+                    type="button"
                     disabled
+                    aria-describedby="generation-blocked-reason"
                     className="w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-neutral-300 border-2 border-neutral-400 text-neutral-500 font-bold uppercase tracking-widest cursor-not-allowed"
                   >
                     <Upload className="w-5 h-5" />
                     Upload & Generate
                   </button>
-                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#e60000]">
-                    <AlertCircle className="w-4 h-4" />
-                    {currentHeld ? "System Halt: Account Under Review" : "System Halt: 0 Credits"}
+                  <p id="generation-blocked-reason" className="flex max-w-sm items-start gap-2 break-words text-sm font-bold text-[#e60000]" role={creditUnavailable || currentHeld ? "alert" : "status"}>
+                    <AlertCircle aria-hidden="true" className="w-4 h-4 shrink-0" />
+                    {currentHeld
+                      ? "Account under review. Generation and credit purchases are temporarily unavailable."
+                      : creditUnavailable
+                        ? "Your account is signed in, but your credit balance is temporarily unavailable. Generation and checkout are paused until it loads."
+                        : "Your account is active. Add credits to generate your next cheat sheet."}
                   </p>
                   {isOutOfCredits && !currentHeld && (
                     <button
@@ -367,6 +369,16 @@ export default function DashboardClient({
                       {checkoutLoading ? "Opening Checkout…" : "Add 10 Credits — $3"}
                     </button>
                   )}
+                  {creditUnavailable && (
+                    <button
+                      type="button"
+                      onClick={() => startRefreshTransition(() => router.refresh())}
+                      disabled={isRefreshPending}
+                      className="w-full border-2 border-black bg-white px-5 py-3 text-sm font-bold uppercase tracking-widest text-black hover:bg-neutral-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isRefreshPending ? "Retrying balance…" : "Retry balance"}
+                    </button>
+                  )}
                   {checkoutError && (
                     <p className="max-w-xs text-xs font-bold text-[#e60000]" role="alert">
                       {checkoutError}
@@ -375,6 +387,7 @@ export default function DashboardClient({
                 </div>
               ) : (
                 <button
+                  type="button"
                   onClick={() => setIsModalOpen(true)}
                   className="w-full sm:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-[#e60000] text-white font-bold uppercase tracking-widest hover:bg-black transition-colors border-2 border-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 active:scale-95 duration-100"
                 >
@@ -445,7 +458,7 @@ export default function DashboardClient({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleUploadSuccess}
-        credits={currentCredits}
+        credits={currentCredits ?? 0}
         isAdmin={isAdmin}
       />
     </div>
