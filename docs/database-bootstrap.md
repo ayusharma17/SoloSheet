@@ -39,8 +39,8 @@ bootstrap is the canonical fresh-install artifact.
 
 For an existing database at phase 16, apply these forward migrations in order:
 
-1. `supabase/migrations/20260918123000_phase17_open_signup_trial_flag.sql`
-2. `supabase/migrations/20260918124000_phase18_profile_recovery.sql`
+1. `supabase/migrations/20260922143949_phase17_open_signup_trial_flag.sql`
+2. `supabase/migrations/20260922144005_phase18_profile_recovery.sql`
 
 Phase 17 must commit before Phase 18, and both must commit before deploying the
 open-signup application/callback. Phase 17 defaults the launch flag to On,

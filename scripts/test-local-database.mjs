@@ -17,8 +17,8 @@ function file(path, db = database) {
 }
 
 for (const [source, forward] of [
-  ['supabase/migration_phase17_open_signup_trial_flag.sql', 'supabase/migrations/20260918123000_phase17_open_signup_trial_flag.sql'],
-  ['supabase/migration_phase18_profile_recovery.sql', 'supabase/migrations/20260918124000_phase18_profile_recovery.sql'],
+  ['supabase/migration_phase17_open_signup_trial_flag.sql', 'supabase/migrations/20260922143949_phase17_open_signup_trial_flag.sql'],
+  ['supabase/migration_phase18_profile_recovery.sql', 'supabase/migrations/20260922144005_phase18_profile_recovery.sql'],
 ]) {
   assert.equal(
     readFileSync(new URL(`../${source}`, import.meta.url), 'utf8'),
