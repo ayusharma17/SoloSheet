@@ -2,10 +2,15 @@
 
 ## Status
 
-This document records the production investigation and recommended remediation.
-The durable-job implementation now exists in the repository, but this document
-does not claim that phase 19, the application, or the Netlify functions have
-been deployed or verified against production.
+This document records the production investigation and remediation. On
+September 24, Phase 19 (`durable_extraction_jobs`) was applied to hosted
+Supabase. It expired six legacy processing reservations and refunded the five
+that were charged. Netlify published Git commit `29ba21c` as production deploy
+`6ab4aacd8743f800089d4e14`, with the extraction Background Function and
+five-minute recovery schedule present. The public home page returned 200 and
+the unauthenticated extraction-status route returned 401. A live authenticated
+upload-to-Gemini-to-sheet test has **not** been run, so end-to-end generation
+and credit settlement remain unverified in production.
 
 The incident affected generation on `https://trysolosheet.com`. Stripe payment
 fulfillment was investigated separately and was reported fixed during this
@@ -27,12 +32,12 @@ database commit, or refund. The browser consequently received a failed
 transport response even though Google later counted the model call as
 successful.
 
-The generation and credit settlement currently share one synchronous process.
-When the hosting platform terminates that process, JavaScript error handling
-does not run. The extraction remains `processing`, no sheet is saved, and the
-reserved credit remains deducted until a later database reconciliation occurs.
+At incident time, generation and credit settlement shared one synchronous
+process. When the hosting platform terminated that process, JavaScript error
+handling did not run. The extraction remained `processing`, no sheet was saved,
+and the reserved credit stayed deducted until database reconciliation.
 
-The recommended fix is to keep the existing Netlify deployment and move Gemini
+The implemented fix kept the existing Netlify deployment and moved Gemini
 generation into a Netlify Background Function backed by a durable Supabase job
 state machine, atomic worker leases, an authenticated status endpoint, and an
 independent scheduled refund sweeper.
