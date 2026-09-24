@@ -1,4 +1,4 @@
--- Apply after phase 17 and before deploying the asynchronous extraction worker.
+-- Apply after phase 18 and before deploying the asynchronous extraction worker.
 -- This turns extraction_requests into the durable job/credit source of truth.
 BEGIN;
 
@@ -42,7 +42,7 @@ BEGIN
     SELECT 1 FROM public.extraction_requests
     GROUP BY request_id HAVING count(*) > 1
   ) THEN
-    RAISE EXCEPTION 'Duplicate extraction request IDs must be resolved before phase 18'
+    RAISE EXCEPTION 'Duplicate extraction request IDs must be resolved before phase 19'
       USING ERRCODE = '23505';
   END IF;
   IF NOT EXISTS (
@@ -91,7 +91,7 @@ BEGIN
 
   IF applied_refunds <> expected_refunds THEN
     RAISE EXCEPTION
-      'Phase 18 could not refund every charged legacy extraction (% expected, % applied)',
+      'Phase 19 could not refund every charged legacy extraction (% expected, % applied)',
       expected_refunds, applied_refunds
       USING ERRCODE = '23503';
   END IF;
