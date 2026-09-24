@@ -1,6 +1,9 @@
 import { downloadFileFromStorage, ownedStoragePath } from "@/lib/supabase/storage-helpers";
+import { MAX_EXTRACTION_FILE_SIZE, MAX_EXTRACTION_TOTAL_SIZE } from "@/lib/extraction-limits";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-export const MAX_TOTAL_SIZE = 200 * 1024 * 1024;
+export const MAX_FILE_SIZE = MAX_EXTRACTION_FILE_SIZE;
+export const MAX_TOTAL_SIZE = MAX_EXTRACTION_TOTAL_SIZE;
 const MAX_REQUEST_SIZE = 64 * 1024;
 const MIME_EXTENSIONS: Record<string, readonly string[]> = {
   "application/pdf": ["pdf"],
@@ -17,6 +20,22 @@ export class ExtractionValidationError extends Error {
   }
 }
 
+export class ExtractionRuntimeError extends Error {
+  readonly failureCode: "provider_transient" | "configuration" | "worker_error";
+  readonly retryable: boolean;
+
+  constructor(
+    failureCode: "provider_transient" | "configuration" | "worker_error",
+    retryable: boolean,
+    cause?: unknown,
+  ) {
+    super("Extraction input could not be read", { cause });
+    this.name = "ExtractionRuntimeError";
+    this.failureCode = failureCode;
+    this.retryable = retryable;
+  }
+}
+
 export interface ValidatedFile {
   url: string;
   path: string;
@@ -24,6 +43,9 @@ export interface ValidatedFile {
   type: string;
   size: number;
 }
+
+export type ValidatedJobFile = Omit<ValidatedFile, "url">;
+export type DownloadedExtractionFile = { buffer: Buffer; mimeType: string; name: string };
 
 export interface ValidatedExtractionRequest {
   requestId: string;
@@ -35,6 +57,47 @@ export interface ValidatedExtractionRequest {
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function runtimeErrorDetails(error: unknown): { status?: number; text: string } {
+  const textParts: string[] = [];
+  const seen = new Set<object>();
+  let current: unknown = error;
+  let status: number | undefined;
+  for (let depth = 0; depth < 8; depth++) {
+    const value = record(current) ? current : null;
+    if (!value || seen.has(value)) break;
+    seen.add(value);
+    for (const candidate of [value.name, value.message, value.code]) {
+      if (typeof candidate === "string") textParts.push(candidate);
+    }
+    for (const candidate of [value.status, value.statusCode, value.code, record(value.response) ? value.response.status : undefined]) {
+      if (typeof candidate === "number" && Number.isInteger(candidate)) status ??= candidate;
+      else if (typeof candidate === "string" && /^\d{3}$/.test(candidate)) status ??= Number(candidate);
+    }
+    current = value.cause ?? value.error;
+  }
+  return { status, text: textParts.join(" ").toLowerCase() };
+}
+
+export function classifyExtractionRuntimeError(
+  error: unknown,
+): Pick<ExtractionRuntimeError, "failureCode" | "retryable"> {
+  if (error instanceof ExtractionRuntimeError) {
+    return { failureCode: error.failureCode, retryable: error.retryable };
+  }
+  if (error instanceof ExtractionValidationError) {
+    return { failureCode: "worker_error", retryable: false };
+  }
+  const { status, text } = runtimeErrorDetails(error);
+  if (status === 401 || status === 403 || /api[_ -]?key|credential|authentication|invalid configured storage url/.test(text)) {
+    return { failureCode: "configuration", retryable: false };
+  }
+  if (status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500) ||
+      /timeout|timed out|aborterror|fetch failed|econnreset|econnrefused|enotfound|eai_again|socket hang up|network|failed to download file/.test(text)) {
+    return { failureCode: "provider_transient", retryable: true };
+  }
+  return { failureCode: "worker_error", retryable: false };
 }
 
 function boundedString(value: unknown, max: number, label: string): string {
@@ -82,6 +145,9 @@ export function parseExtractionRequest(
     if (typeof entry.size !== "number" || !Number.isSafeInteger(entry.size) || entry.size <= 0) {
       throw new ExtractionValidationError("Invalid file size");
     }
+    if (entry.size > MAX_FILE_SIZE) {
+      throw new ExtractionValidationError("Individual file size exceeds 20MB limit", 413);
+    }
     totalSize += entry.size;
     if (totalSize > MAX_TOTAL_SIZE) throw new ExtractionValidationError("Total file size exceeds 200MB limit", 413);
     return { url, path: derivedPath, name, type, size: entry.size };
@@ -128,18 +194,91 @@ export function matchesFileSignature(buffer: Buffer, type: string): boolean {
   }
 }
 
+async function downloadExtractionFile(entry: ValidatedFile, maxBytes: number): Promise<DownloadedExtractionFile> {
+  let downloaded: Awaited<ReturnType<typeof downloadFileFromStorage>>;
+  try {
+    downloaded = await downloadFileFromStorage(entry.url, undefined, maxBytes);
+  } catch (error) {
+    const detail = runtimeErrorDetails(error).text;
+    if (/downloaded file exceeds size limit|invalid download limit/.test(detail)) {
+      throw new ExtractionValidationError("Downloaded file exceeds size limit", 413);
+    }
+    const classification = classifyExtractionRuntimeError(error);
+    throw new ExtractionRuntimeError(classification.failureCode, classification.retryable, error);
+  }
+  const { buffer, headers } = downloaded;
+  const responseType = headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  if ((responseType && responseType !== entry.type && responseType !== "application/octet-stream") || !matchesFileSignature(buffer, entry.type)) {
+    throw new ExtractionValidationError("Downloaded file does not match its declared type");
+  }
+  if (buffer.length !== entry.size) throw new ExtractionValidationError("Downloaded file size differs from upload metadata");
+  return { buffer, mimeType: entry.type, name: entry.name };
+}
+
 export async function downloadExtractionFiles(fileUrls: ValidatedFile[]) {
-  const files: { buffer: Buffer; mimeType: string; name: string }[] = [];
+  const files: DownloadedExtractionFile[] = [];
   let totalSize = 0;
   for (const entry of fileUrls) {
-    const { buffer, headers } = await downloadFileFromStorage(entry.url, undefined, Math.min(entry.size, MAX_TOTAL_SIZE - totalSize));
-    totalSize += buffer.length;
-    const responseType = headers.get("content-type")?.split(";")[0].trim().toLowerCase();
-    if ((responseType && responseType !== entry.type && responseType !== "application/octet-stream") || !matchesFileSignature(buffer, entry.type)) {
-      throw new ExtractionValidationError("Downloaded file does not match its declared type");
-    }
-    if (buffer.length !== entry.size) throw new ExtractionValidationError("Downloaded file size differs from upload metadata");
-    files.push({ buffer, mimeType: entry.type, name: entry.name });
+    const file = await downloadExtractionFile(entry, Math.min(entry.size, MAX_TOTAL_SIZE - totalSize));
+    totalSize += file.buffer.length;
+    files.push(file);
   }
   return files;
+}
+
+export async function* iterateExtractionJobFiles(
+  supabase: SupabaseClient,
+  userId: string,
+  files: ValidatedJobFile[],
+): AsyncGenerator<DownloadedExtractionFile> {
+  let totalSize = 0;
+  for (const file of files) {
+    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > MAX_FILE_SIZE) {
+      throw new ExtractionValidationError("Individual file size exceeds 20MB limit", 413);
+    }
+    if (!file.path.startsWith(`${userId}/`) || file.path.split("/").length !== 3) {
+      throw new ExtractionValidationError("Invalid owned storage path");
+    }
+    let signingResult: Awaited<ReturnType<ReturnType<typeof supabase.storage.from>["createSignedUrl"]>>;
+    try {
+      signingResult = await supabase.storage
+        .from("course-materials")
+        .createSignedUrl(file.path, 600);
+    } catch (error) {
+      const classification = classifyExtractionRuntimeError(error);
+      throw new ExtractionRuntimeError(
+        classification.failureCode === "worker_error" ? "provider_transient" : classification.failureCode,
+        classification.failureCode === "worker_error" || classification.retryable,
+        error,
+      );
+    }
+    const { data, error } = signingResult;
+    if (error || !data?.signedUrl) {
+      const classification = classifyExtractionRuntimeError(error ?? new Error("Storage signing returned no URL"));
+      // Unknown signing failures are normally service/transport failures. A
+      // clear 4xx remains permanent, while an opaque SDK failure gets retried.
+      const opaque = !error || (classification.failureCode === "worker_error" && !runtimeErrorDetails(error).status);
+      throw new ExtractionRuntimeError(
+        opaque ? "provider_transient" : classification.failureCode,
+        opaque || classification.retryable,
+        error,
+      );
+    }
+    const downloaded = await downloadExtractionFile(
+      { ...file, url: data.signedUrl },
+      Math.min(file.size, MAX_TOTAL_SIZE - totalSize),
+    );
+    totalSize += downloaded.buffer.length;
+    yield downloaded;
+  }
+}
+
+export async function downloadExtractionJobFiles(
+  supabase: SupabaseClient,
+  userId: string,
+  files: ValidatedJobFile[],
+) {
+  const downloaded: DownloadedExtractionFile[] = [];
+  for await (const file of iterateExtractionJobFiles(supabase, userId, files)) downloaded.push(file);
+  return downloaded;
 }

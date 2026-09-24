@@ -27,6 +27,7 @@
 # production
 /build
 /brag-output/
+/.netlify/
 
 # misc
 .DS_Store

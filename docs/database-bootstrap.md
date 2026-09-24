@@ -52,6 +52,16 @@ zero-credit profile with no trial marker, records one privacy-minimized
 callback cannot confirm repair, it clears only that callback's local session and
 fails closed instead of redirecting to the dashboard.
 
+For the durable-generation release, apply
+`supabase/migrations/20260923014953_durable_extraction_jobs.sql` as Phase 19
+only after confirming Phases 17 and 18 are applied. It expires and refunds
+legacy processing reservations, replaces synchronous extraction RPCs, and
+requires the matching Netlify application and background functions to be
+deployed together. Check for duplicate request IDs and charged reservations
+without profiles before applying it. Keep generation paused through the
+database/application cutover; see the
+[generation incident rollout](production-generation-incident-2026-09-22.md).
+
 After the application is deployed in a non-production environment, use the
 maintainer CLI in `docs/admin-operations.md` to confirm the launch flag is On,
 then follow `docs/open-signup-local-acceptance.md`. Repository migration files

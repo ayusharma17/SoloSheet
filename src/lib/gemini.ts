@@ -1,6 +1,99 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 const GOOGLE_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+export const GEMINI_FALLBACK_MODELS = [DEFAULT_GEMINI_MODEL, "gemini-2.5-flash"] as const;
+export const PROVIDER_CALL_TIMEOUT_MS = 150_000;
+const MIN_PROVIDER_CALL_TIME_MS = 1_000;
+
+export type ProviderFailureClassification = {
+  failureCode: "provider_permanent" | "provider_transient" | "configuration" | "worker_error";
+  retryable: boolean;
+  /** Whether trying a different configured model can plausibly recover. */
+  canFallback: boolean;
+};
+
+function errorRecord(error: unknown): Record<string, unknown> | null {
+  return typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+}
+
+function errorChain(error: unknown): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8; depth++) {
+    const record = errorRecord(current);
+    if (!record || seen.has(record)) break;
+    seen.add(record);
+    records.push(record);
+    current = record.cause ?? record.error;
+  }
+  return records;
+}
+
+function numericStatus(error: unknown): number | undefined {
+  for (const record of errorChain(error)) {
+    const candidates = [record.status, record.statusCode, record.code, errorRecord(record.response)?.status];
+    for (const value of candidates) {
+      if (typeof value === "number" && Number.isInteger(value)) return value;
+      if (typeof value === "string" && /^\d{3}$/.test(value)) return Number(value);
+    }
+  }
+  const match = providerErrorText(error).match(/(?:^|\D)([45]\d{2})(?:\D|$)/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function providerErrorText(error: unknown): string {
+  return errorChain(error)
+    .flatMap((record) => [record.name, record.message, record.code])
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Pure classification used both by the provider loop and its unit tests. */
+export function classifyProviderError(error: unknown): ProviderFailureClassification {
+  const status = numericStatus(error);
+  const text = providerErrorText(error);
+  if (status === 401 || status === 403 || /api[_ -]?key|credential|authentication|permission denied/.test(text)) {
+    return { failureCode: "configuration", retryable: false, canFallback: false };
+  }
+  if (status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500)) {
+    return { failureCode: "provider_transient", retryable: true, canFallback: true };
+  }
+  if (/timeout|timed out|aborterror|fetch failed|econnreset|econnrefused|enotfound|eai_again|socket hang up|network/.test(text)) {
+    return { failureCode: "provider_transient", retryable: true, canFallback: true };
+  }
+  if (status === 404 && /model|models\//.test(text) && /not found|not supported|unavailable|unknown/.test(text)) {
+    return { failureCode: "provider_permanent", retryable: false, canFallback: true };
+  }
+  if (status !== undefined && status >= 400 && status < 500) {
+    return { failureCode: "provider_permanent", retryable: false, canFallback: false };
+  }
+  return { failureCode: "worker_error", retryable: false, canFallback: false };
+}
+
+/** Common configuration/permanent failures must not be masked by a later transient. */
+export function combineProviderFailures(
+  failures: readonly ProviderFailureClassification[],
+): ProviderFailureClassification {
+  if (failures.some((failure) => failure.failureCode === "configuration")) {
+    return { failureCode: "configuration", retryable: false, canFallback: false };
+  }
+  if (failures.some((failure) => failure.failureCode === "provider_permanent" && !failure.canFallback)) {
+    return { failureCode: "provider_permanent", retryable: false, canFallback: false };
+  }
+  if (failures.some((failure) => failure.failureCode === "worker_error")) {
+    return { failureCode: "worker_error", retryable: false, canFallback: false };
+  }
+  if (failures.some((failure) => failure.failureCode === "provider_transient")) {
+    return { failureCode: "provider_transient", retryable: true, canFallback: true };
+  }
+  if (failures.length > 0 && failures.every((failure) => failure.failureCode === "provider_permanent")) {
+    return { failureCode: "provider_permanent", retryable: false, canFallback: false };
+  }
+  return { failureCode: "worker_error", retryable: false, canFallback: false };
+}
 
 // ── Types ──────────────────────────────────────────────────
 export interface ExtractionItem {
@@ -14,6 +107,66 @@ export interface ExtractionItem {
 export interface ExtractionResult {
   items: ExtractionItem[];
   courseName: string;
+}
+
+export class ExtractionProviderError extends Error {
+  readonly failureCode: "provider_permanent" | "provider_transient" | "configuration" | "worker_error";
+  readonly retryable: boolean;
+  constructor(
+    failureCode: "provider_permanent" | "provider_transient" | "configuration" | "worker_error",
+    retryable: boolean,
+  ) {
+    super("Extraction provider request failed");
+    this.name = "ExtractionProviderError";
+    this.failureCode = failureCode;
+    this.retryable = retryable;
+  }
+}
+
+export class ExtractionDeadlineError extends ExtractionProviderError {
+  constructor() {
+    super("provider_transient", true);
+    this.name = "ExtractionDeadlineError";
+  }
+}
+
+/** Bounds one provider request by both its own cap and the job's absolute deadline. */
+export function remainingProviderCallTimeout(deadlineMs: number, now = Date.now()): number {
+  if (!Number.isFinite(deadlineMs)) return 0;
+  return Math.max(0, Math.min(PROVIDER_CALL_TIMEOUT_MS, Math.floor(deadlineMs - now)));
+}
+
+export class ExtractionOutputError extends Error {
+  readonly failureCode = "invalid_output" as const;
+  readonly retryable = false;
+  constructor() {
+    super("Extraction provider returned invalid output");
+    this.name = "ExtractionOutputError";
+  }
+}
+
+export function validateExtractionItems(value: unknown): ExtractionItem[] {
+  if (!Array.isArray(value) || value.length === 0) throw new ExtractionOutputError();
+  const categories = new Set<ExtractionItem["category"]>(["Formula", "Definition", "DiagramRef", "ExamTrick"]);
+  return value.map((item: unknown) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) throw new ExtractionOutputError();
+    const record = item as Record<string, unknown>;
+    if (typeof record.category !== "string" || !categories.has(record.category as ExtractionItem["category"]) ||
+        typeof record.topic !== "string" || !record.topic.trim() || record.topic.length > 200 ||
+        typeof record.content !== "string" || !record.content.trim() || record.content.length > 20_000 ||
+        typeof record.shorthand !== "string" || record.shorthand.length > 5_000 ||
+        typeof record.priority !== "number" || !Number.isFinite(record.priority) ||
+        record.priority < 1 || record.priority > 10) {
+      throw new ExtractionOutputError();
+    }
+    return {
+      category: record.category as ExtractionItem["category"],
+      topic: record.topic,
+      content: record.content,
+      shorthand: record.shorthand,
+      priority: Math.round(record.priority),
+    };
+  });
 }
 
 // ── Sanitize user directive ────────────────────────────────
@@ -88,7 +241,10 @@ async function extractSingleFile(
   file: { buffer: Buffer; mimeType: string; name: string },
   sanitizedDirective: string,
   index: number,
-  total: number
+  total: number,
+  requestId?: string,
+  assertActive?: () => Promise<void>,
+  deadlineMs = Date.now() + PROVIDER_CALL_TIMEOUT_MS,
 ): Promise<ExtractionItem[]> {
   const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [
     {
@@ -118,16 +274,11 @@ Return ONLY the JSON array. No markdown, no explanation. Extract EVERYTHING — 
     },
   ];
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
-  const fallbackModels = [
-    primaryModel,
-    "gemini-3.1-flash-lite-preview",
-    "gemini-2.5-flash",
-  ];
-  const modelsToTry = Array.from(new Set(fallbackModels));
+  const primaryModel = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+  const modelsToTry = Array.from(new Set([primaryModel, ...GEMINI_FALLBACK_MODELS]));
 
   let response;
-  let lastError: Error | unknown;
+  const failures: ProviderFailureClassification[] = [];
   let success = false;
 
   for (const model of modelsToTry) {
@@ -135,12 +286,17 @@ Return ONLY the JSON array. No markdown, no explanation. Extract EVERYTHING — 
     let delay = 1500;
 
     while (retries > 0) {
+      await assertActive?.();
+      const timeoutMs = remainingProviderCallTimeout(deadlineMs);
+      if (timeoutMs < MIN_PROVIDER_CALL_TIME_MS) throw new ExtractionDeadlineError();
       try {
-        console.log(`[Gemini Extraction] File ${index}/${total} (${file.name}): Attempting with model ${model}...`);
+        console.log(`[Gemini Extraction] request=${requestId ?? "untracked"} file=${index}/${total} model=${model} attempt=start`);
         response = await ai.models.generateContent({
           model,
           contents: [{ role: "user", parts }],
           config: {
+            httpOptions: { timeout: timeoutMs },
+            abortSignal: AbortSignal.timeout(timeoutMs),
             systemInstruction: SYSTEM_PROMPT,
             maxOutputTokens: 8192,
             responseMimeType: "application/json",
@@ -166,59 +322,63 @@ Return ONLY the JSON array. No markdown, no explanation. Extract EVERYTHING — 
         success = true;
         break;
       } catch (error: unknown) {
-        lastError = error;
-        const err = error as Error & { status?: number };
-        console.warn(`[Gemini Extraction] Model ${model} failed (retries left: ${retries - 1}):`, err.message);
-        if (err.status === 400 || err.message?.includes("Invalid argument")) {
-          break;
-        }
+        const classification = classifyProviderError(error);
+        failures.push(classification);
+        console.warn(`[Gemini Extraction] request=${requestId ?? "untracked"} model=${model} status=${numericStatus(error) ?? "unknown"} failure=${classification.failureCode}`);
         retries--;
+        if (!classification.retryable) break;
         if (retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await assertActive?.();
+          const remaining = remainingProviderCallTimeout(deadlineMs);
+          if (remaining <= delay) throw new ExtractionDeadlineError();
+          await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
           delay *= 1.5;
         }
       }
     }
 
     if (success) break;
-    console.warn(`[Gemini Extraction] Giving up on model ${model}, moving to next fallback...`);
+    const latestFailure = failures.at(-1);
+    if (!latestFailure?.canFallback) break;
+    console.warn(`[Gemini Extraction] request=${requestId ?? "untracked"} model=${model} exhausted=true`);
   }
 
   if (!success) {
-    throw lastError || new Error(`All fallback models failed for file ${file.name}.`);
+    if (!process.env.GOOGLE_API_KEY) throw new ExtractionProviderError("configuration", false);
+    const classification = combineProviderFailures(failures);
+    throw new ExtractionProviderError(classification.failureCode, classification.retryable);
   }
 
   const text = response?.text ?? "[]";
-  let rawItems: Record<string, unknown>[];
+  let rawItems: unknown;
   try {
     rawItems = JSON.parse(text);
-    if (!Array.isArray(rawItems)) {
-      rawItems = (rawItems as { items?: Record<string, unknown>[] }).items || [];
-    }
   } catch {
     const match = text.match(/\[[\s\S]*\]/);
     if (match) {
-      rawItems = JSON.parse(match[0]);
+      try { rawItems = JSON.parse(match[0]); }
+      catch { throw new ExtractionOutputError(); }
     } else {
-      throw new Error("Failed to parse extraction response as JSON");
+      throw new ExtractionOutputError();
     }
   }
 
-  return rawItems.map((item) => ({
-    category: (item.category as "Formula" | "Definition" | "DiagramRef" | "ExamTrick") || "Definition",
-    topic: (item.topic as string) || "Untitled",
-    content: (item.content as string) || "",
-    shorthand: (item.shorthand as string) || "",
-    priority: typeof item.priority === "number" ? Math.min(10, Math.max(1, Math.round(item.priority))) : 5,
-  }));
+  return validateExtractionItems(rawItems);
 }
 // ── Main extraction function ───────────────────────────────
 export async function extractFromMaterials(
-  files: { buffer: Buffer; mimeType: string; name: string }[],
-  userDirective: string
+  files: Iterable<{ buffer: Buffer; mimeType: string; name: string }> |
+    AsyncIterable<{ buffer: Buffer; mimeType: string; name: string }>,
+  userDirective: string,
+  options: {
+    requestId?: string;
+    onProgress?: () => Promise<void>;
+    totalFiles?: number;
+    deadlineMs?: number;
+  } = {},
 ): Promise<ExtractionItem[]> {
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY is not set");
+  if (!apiKey) throw new ExtractionProviderError("configuration", false);
 
   // Netlify injects a Google SDK base URL that routes requests through its AI
   // Gateway. SoloSheet supplies its own Google API key, so use Google's API
@@ -228,22 +388,34 @@ export async function extractFromMaterials(
     httpOptions: { baseUrl: GOOGLE_GEMINI_API_BASE_URL },
   });
   const sanitizedDirective = sanitizeDirective(userDirective);
+  const deadlineMs = options.deadlineMs ?? Date.now() + 13 * 60_000;
 
   let allItems: ExtractionItem[] = [];
 
   // Process files sequentially to avoid rate limiting and maximize density per file
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    console.log(`[Gemini Batch] Starting extraction for ${file.name} (${i + 1}/${files.length})`);
+  let index = 0;
+  const totalFiles = options.totalFiles ?? (Array.isArray(files) ? files.length : undefined);
+  for await (const file of files) {
+    index++;
+    await options.onProgress?.();
+    console.log(`[Gemini Batch] request=${options.requestId ?? "untracked"} file=${index}/${totalFiles ?? "unknown"} started=true`);
     try {
-      const parsedItems = await extractSingleFile(ai, file, sanitizedDirective, i + 1, files.length);
-      console.log(`[Gemini Batch] Extracted ${parsedItems.length} items from ${file.name}`);
+      const parsedItems = await extractSingleFile(
+        ai,
+        file,
+        sanitizedDirective,
+        index,
+        totalFiles ?? index,
+        options.requestId,
+        options.onProgress,
+        deadlineMs,
+      );
+      console.log(`[Gemini Batch] request=${options.requestId ?? "untracked"} file=${index}/${totalFiles ?? "unknown"} items=${parsedItems.length}`);
       allItems = allItems.concat(parsedItems);
     } catch (err) {
-      console.error(`[Gemini Batch] Failed to extract from ${file.name}:`, err);
-      // Throw to abort the whole extraction if one file completely fails, 
-      // ensuring the user doesn't lose a credit for a partial sheet.
-      throw new Error(`Failed to extract data from ${file.name}. Please try again.`);
+      console.error(`[Gemini Batch] request=${options.requestId ?? "untracked"} file=${index}/${totalFiles ?? "unknown"} failed=true`);
+      if (err instanceof ExtractionProviderError || err instanceof ExtractionOutputError) throw err;
+      throw new ExtractionProviderError("worker_error", false);
     }
   }
 

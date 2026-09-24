@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import {
   BookOpen,
@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import UploadModal from "./upload-modal";
 import { dashboardAccessState, purchaseStatusUpdate } from "@/lib/dashboard-access";
+import {
+  ActiveExtractionStore,
+  isActiveExtractionStorageKey,
+} from "@/lib/upload-lifecycle";
 
 interface CourseMaterial {
   id: string;
@@ -55,6 +59,9 @@ export default function DashboardClient({
   const [isRefreshPending, startRefreshTransition] = useTransition();
   const [currentCredits, setCurrentCredits] = useState(credits);
   const [currentHeld, setCurrentHeld] = useState(isAccountHeld);
+  const [activeRequestIds, setActiveRequestIds] = useState<string[]>([]);
+  const activeRequestIdsRef = useRef<string[]>([]);
+  const activeRequestId = activeRequestIds[0] ?? null;
   const [purchaseState, setPurchaseState] = useState<"confirming" | "paid" | "held" | "reversed" | "unconfirmed">(
     checkoutStatus === "success" && checkoutSessionId ? "confirming" : "unconfirmed",
   );
@@ -63,6 +70,51 @@ export default function DashboardClient({
     setCurrentCredits(credits);
     setCurrentHeld(isAccountHeld);
   }, [credits, isAccountHeld]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let authenticatedUserId: string | null = null;
+    const readLatestActiveRequest = () => {
+      if (!authenticatedUserId) return;
+      try {
+        const requestIds = new ActiveExtractionStore(window.localStorage).getAll(authenticatedUserId);
+        activeRequestIdsRef.current = requestIds;
+        setActiveRequestIds(requestIds);
+      } catch { /* Local persistence may be disabled. */ }
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea === window.localStorage && isActiveExtractionStorageKey(event.key)) {
+        readLatestActiveRequest();
+        if (event.newValue === null) startRefreshTransition(() => router.refresh());
+      }
+    };
+    const recoverActiveRequest = async () => {
+      const recoveryClient = createClient();
+      const { data: { user: authenticatedUser } } = await recoveryClient.auth.getUser();
+      if (cancelled || !authenticatedUser) return;
+      authenticatedUserId = authenticatedUser.id;
+      readLatestActiveRequest();
+      window.addEventListener("storage", handleStorage);
+    };
+    void recoverActiveRequest();
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [router]);
+
+  useEffect(() => {
+    const refreshAfterReturn = () => startRefreshTransition(() => router.refresh());
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshAfterReturn();
+    };
+    window.addEventListener("pageshow", refreshAfterReturn);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pageshow", refreshAfterReturn);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [router]);
 
   useEffect(() => {
     if (checkoutStatus !== "success" || !checkoutSessionId) return;
@@ -112,10 +164,24 @@ export default function DashboardClient({
     router.refresh();
   };
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = useCallback((materialId: string) => {
     setIsModalOpen(false);
     router.refresh();
-  };
+    router.push(`/cheat-sheet/${materialId}`);
+  }, [router]);
+
+  const handleExtractionSettled = useCallback((remainingCredits?: number) => {
+    if (remainingCredits !== undefined) setCurrentCredits(remainingCredits);
+    startRefreshTransition(() => router.refresh());
+  }, [router]);
+
+  const handleActiveRequestsChange = useCallback((requestIds: string[]) => {
+    if (requestIds.length < activeRequestIdsRef.current.length) {
+      startRefreshTransition(() => router.refresh());
+    }
+    activeRequestIdsRef.current = requestIds;
+    setActiveRequestIds(requestIds);
+  }, [router]);
 
   const handleCheckout = async () => {
     setCheckoutLoading(true);
@@ -399,6 +465,30 @@ export default function DashboardClient({
           </div>
         </div>
 
+        {activeRequestId && (
+          <div
+            className="flex flex-col gap-4 border-[3px] border-black bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between"
+            role="status"
+            aria-live="polite"
+          >
+            <div>
+              <p className="font-black uppercase tracking-tight">
+                {activeRequestIds.length === 1 ? "Generation in progress" : `${activeRequestIds.length} generations in progress`}
+              </p>
+              <p className="mt-1 text-sm font-medium text-neutral-700">
+                This request is saved safely. You can resume status checks without uploading again or spending another credit.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="shrink-0 border-2 border-black bg-black px-5 py-3 text-sm font-bold uppercase tracking-widest text-white hover:bg-[#e60000]"
+            >
+              Resume generation
+            </button>
+          </div>
+        )}
+
         {/* Recent Sheets */}
         <div>
           <h2 className="text-2xl font-black uppercase tracking-tight mb-8">Generated Assets</h2>
@@ -460,6 +550,9 @@ export default function DashboardClient({
         onSuccess={handleUploadSuccess}
         credits={currentCredits ?? 0}
         isAdmin={isAdmin}
+        resumeRequestId={activeRequestId}
+        onActiveRequestsChange={handleActiveRequestsChange}
+        onSettled={handleExtractionSettled}
       />
     </div>
   );

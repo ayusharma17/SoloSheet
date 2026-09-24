@@ -17,9 +17,13 @@ function loadSource(relativePath, dependencies = {}) {
   );
   return compiled.exports;
 }
-const storage = loadSource('src/lib/supabase/storage-helpers.ts');
+const limits = loadSource('src/lib/extraction-limits.ts');
+const storage = loadSource('src/lib/supabase/storage-helpers.ts', {
+  '../extraction-limits.ts': limits,
+});
 const validation = loadSource('src/lib/extraction-validation.ts', {
   '@/lib/supabase/storage-helpers': storage,
+  '@/lib/extraction-limits': limits,
 });
 const origin = 'https://project.supabase.co';
 const user = 'owner';
@@ -45,6 +49,20 @@ test('validates structure and rejects forged ownership, origins and paths', () =
     { url: file.url + '#fragment' },
   ]) assert.throws(() => validation.parseExtractionRequest({ ...payload(), fileUrls: [{ ...file, ...patch }] }, user, origin));
   assert.throws(() => validation.parseExtractionRequest({ ...payload(), fileUrls: [file, file] }, user, origin));
+});
+
+test('enforces the provider-safe per-file ceiling independently of the aggregate limit', () => {
+  const atLimit = { ...file, size: validation.MAX_FILE_SIZE };
+  assert.equal(validation.parseExtractionRequest({ ...payload(), fileUrls: [atLimit] }, user, origin).fileUrls[0].size, validation.MAX_FILE_SIZE);
+  assert.doesNotThrow(() => storage.validateFileForUpload({ name: 'a.pdf', type: 'application/pdf', size: validation.MAX_FILE_SIZE }));
+  assert.throws(
+    () => storage.validateFileForUpload({ name: 'a.pdf', type: 'application/pdf', size: validation.MAX_FILE_SIZE + 1 }),
+    /Maximum size is 20MB/,
+  );
+  assert.throws(
+    () => validation.parseExtractionRequest({ ...payload(), fileUrls: [{ ...file, size: validation.MAX_FILE_SIZE + 1 }] }, user, origin),
+    error => error.status === 413 && /individual file size/i.test(error.message),
+  );
 });
 
 test('bounds JSON body and rejects malformed input', async () => {
@@ -98,4 +116,96 @@ test('recognizes the allowlisted magic bytes', () => {
     assert.equal(validation.matchesFileSignature(bytes, type), true);
     assert.equal(validation.matchesFileSignature(Buffer.from('invalid'), type), false);
   }
+});
+
+test('classifies signing and download transport failures for retry settlement', () => {
+  assert.deepEqual(validation.classifyExtractionRuntimeError(new TypeError('fetch failed', {
+    cause: Object.assign(new Error('getaddrinfo EAI_AGAIN'), { code: 'EAI_AGAIN' }),
+  })), { failureCode: 'provider_transient', retryable: true });
+  assert.deepEqual(validation.classifyExtractionRuntimeError({ status: 503 }), {
+    failureCode: 'provider_transient', retryable: true,
+  });
+  assert.deepEqual(validation.classifyExtractionRuntimeError({ status: 401 }), {
+    failureCode: 'configuration', retryable: false,
+  });
+  assert.deepEqual(validation.classifyExtractionRuntimeError(new validation.ExtractionValidationError('bad bytes')), {
+    failureCode: 'worker_error', retryable: false,
+  });
+});
+
+test('job inputs are signed, downloaded, and yielded incrementally in source order', async () => {
+  const originalFetch = global.fetch;
+  const originalOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  process.env.NEXT_PUBLIC_SUPABASE_URL = origin;
+  const signed = [];
+  const files = [
+    { path: 'owner/session/a.pdf', name: 'a.pdf', type: 'application/pdf', size: 8 },
+    { path: 'owner/session/b.pdf', name: 'b.pdf', type: 'application/pdf', size: 8 },
+  ];
+  const supabase = {
+    storage: {
+      from() {
+        return {
+          async createSignedUrl(path) {
+            signed.push(path);
+            return {
+              data: { signedUrl: `${origin}/storage/v1/object/sign/course-materials/${path}?token=x` },
+              error: null,
+            };
+          },
+        };
+      },
+    },
+  };
+  try {
+    global.fetch = async () => new Response('%PDF-1.7', { headers: { 'content-type': 'application/pdf' } });
+    const iterator = validation.iterateExtractionJobFiles(supabase, 'owner', files);
+    const first = await iterator.next();
+    assert.equal(first.value.name, 'a.pdf');
+    assert.deepEqual(signed, ['owner/session/a.pdf']);
+    const second = await iterator.next();
+    assert.equal(second.value.name, 'b.pdf');
+    assert.deepEqual(signed, ['owner/session/a.pdf', 'owner/session/b.pdf']);
+    assert.equal((await iterator.next()).done, true);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalOrigin === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = originalOrigin;
+  }
+});
+
+test('worker rejects a persisted job file above the per-file ceiling before signing it', async () => {
+  let signed = false;
+  const supabase = { storage: { from: () => ({ createSignedUrl: async () => {
+    signed = true;
+    return { data: null, error: null };
+  } }) } };
+  const iterator = validation.iterateExtractionJobFiles(supabase, 'owner', [{
+    path: 'owner/session/a.pdf', name: 'a.pdf', type: 'application/pdf', size: validation.MAX_FILE_SIZE + 1,
+  }]);
+  await assert.rejects(iterator.next(), error => error.status === 413);
+  assert.equal(signed, false);
+});
+
+test('thrown signing transport failures remain retryable', async () => {
+  const supabase = {
+    storage: {
+      from() {
+        return {
+          async createSignedUrl() {
+            throw new TypeError('fetch failed', {
+              cause: Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' }),
+            });
+          },
+        };
+      },
+    },
+  };
+  const iterator = validation.iterateExtractionJobFiles(supabase, 'owner', [
+    { path: 'owner/session/a.pdf', name: 'a.pdf', type: 'application/pdf', size: 8 },
+  ]);
+  await assert.rejects(iterator.next(), error =>
+    error instanceof validation.ExtractionRuntimeError &&
+    error.failureCode === 'provider_transient' && error.retryable === true
+  );
 });

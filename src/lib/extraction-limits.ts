@@ -1,0 +1,2 @@
+export const MAX_EXTRACTION_FILE_SIZE = 20 * 1024 * 1024;
+export const MAX_EXTRACTION_TOTAL_SIZE = 200 * 1024 * 1024;

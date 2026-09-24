@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
-    "test:unit": "node tests/extraction-credits.test.mjs && node tests/extraction-validation.test.cjs && node tests/admin.test.mjs && node tests/account-holds.test.mjs && node tests/payments.test.mjs && node tests/stripe-webhook.test.mjs && node tests/http-security.test.mjs && node tests/storage-reservations.test.mjs && node tests/auth-profile-recovery.test.mjs && node tests/account-access-copy.test.mjs && node tests/trial-credit-flag-cli.test.mjs",
+    "test:unit": "node tests/extraction-credits.test.mjs && node tests/extraction-validation.test.cjs && node tests/extraction-jobs.test.mjs && node tests/gemini-validation.test.mjs && node tests/extraction-runtime.test.mjs && node tests/extraction-worker.test.cjs && node tests/admin.test.mjs && node tests/account-holds.test.mjs && node tests/payments.test.mjs && node tests/stripe-webhook.test.mjs && node tests/http-security.test.mjs && node tests/upload-lifecycle.test.mjs && node tests/storage-reservations.test.mjs && node tests/auth-profile-recovery.test.mjs && node tests/account-access-copy.test.mjs && node tests/trial-credit-flag-cli.test.mjs",
     "test:database": "node scripts/test-local-database.mjs",
     "test:e2e:local": "node scripts/playwright-local-e2e.mjs",
     "test:open-signup": "node tests/auth-profile-recovery.test.mjs && node tests/account-access-copy.test.mjs && node tests/trial-credit-flag-cli.test.mjs",
@@ -33,6 +33,7 @@
     "stripe": "^22.6.2"
   },
   "devDependencies": {
+    "@netlify/functions": "^6.0.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 const container = process.env.TEST_POSTGRES_CONTAINER || 'solosheet-hardening-db';
 const database = `hardening_${Date.now()}`;
 const upgradeDatabase = `hardening_upgrade_${Date.now()}`;
+const collisionDatabase = `hardening_collision_${Date.now()}`;
+const missingProfileDatabase = `hardening_missing_profile_${Date.now()}`;
 const args = ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres'];
 function sql(text, db = database) {
   const result = spawnSync('docker', [...args, '-d', db, '-Atq'], { input: text, encoding: 'utf8' });
@@ -15,10 +17,17 @@ function sql(text, db = database) {
 function file(path, db = database) {
   sql(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'), db);
 }
+function rejectedFile(path, db) {
+  return spawnSync('docker', [...args, '-d', db], {
+    input: readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'),
+    encoding: 'utf8',
+  });
+}
 
 for (const [source, forward] of [
   ['supabase/migration_phase17_open_signup_trial_flag.sql', 'supabase/migrations/20260922143949_phase17_open_signup_trial_flag.sql'],
   ['supabase/migration_phase18_profile_recovery.sql', 'supabase/migrations/20260922144005_phase18_profile_recovery.sql'],
+  ['supabase/migration_phase19_durable_extraction_jobs.sql', 'supabase/migrations/20260923014953_durable_extraction_jobs.sql'],
 ]) {
   assert.equal(
     readFileSync(new URL(`../${source}`, import.meta.url), 'utf8'),
@@ -61,10 +70,51 @@ sql(`
 `, upgradeDatabase);
 file('supabase/migration_phase17_open_signup_trial_flag.sql', upgradeDatabase);
 file('supabase/migration_phase18_profile_recovery.sql', upgradeDatabase);
-assert.equal(sql("SELECT credits FROM public.profiles WHERE id='71000000-0000-4000-8000-000000000001'", upgradeDatabase), '7');
+
+// Clone the exact phase-17 state to prove phase 18 aborts cleanly on both
+// ambiguous request IDs and a charged legacy reservation whose profile is gone.
+sql(`CREATE DATABASE ${collisionDatabase} TEMPLATE ${upgradeDatabase}`, 'postgres');
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+    ('72000000-0000-4000-8000-000000000001','collision-one@school.edu',now()),
+    ('72000000-0000-4000-8000-000000000002','collision-two@school.edu',now());
+  INSERT INTO public.extraction_requests(user_id,request_id,fingerprint,status,charged) VALUES
+    ('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000099',repeat('a',64),'processing',true),
+    ('72000000-0000-4000-8000-000000000002','72000000-0000-4000-8000-000000000099',repeat('b',64),'processing',false);
+`, collisionDatabase);
+const collisionMigration = rejectedFile('supabase/migration_phase19_durable_extraction_jobs.sql', collisionDatabase);
+assert.notEqual(collisionMigration.status, 0, 'phase 18 accepted duplicate legacy request IDs');
+assert.match(collisionMigration.stderr, /Duplicate extraction request IDs/);
+assert.equal(sql("SELECT count(*) FROM public.extraction_requests WHERE request_id='72000000-0000-4000-8000-000000000099' AND status='processing'", collisionDatabase), '2');
+assert.equal(sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='extraction_requests' AND column_name='attempt_count'", collisionDatabase), '0');
+
+sql(`CREATE DATABASE ${missingProfileDatabase} TEMPLATE ${upgradeDatabase}`, 'postgres');
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at)
+  VALUES ('73000000-0000-4000-8000-000000000001','missing-refund@school.edu',now());
+  DELETE FROM public.profiles WHERE id='73000000-0000-4000-8000-000000000001';
+  INSERT INTO public.extraction_requests(user_id,request_id,fingerprint,status,charged)
+  VALUES ('73000000-0000-4000-8000-000000000001','73000000-0000-4000-8000-000000000099',repeat('c',64),'processing',true);
+`, missingProfileDatabase);
+const missingProfileMigration = rejectedFile('supabase/migration_phase19_durable_extraction_jobs.sql', missingProfileDatabase);
+assert.notEqual(missingProfileMigration.status, 0, 'phase 18 settled a charged legacy request without a profile');
+assert.match(missingProfileMigration.stderr, /could not refund every charged legacy extraction/i);
+assert.equal(sql("SELECT status FROM public.extraction_requests WHERE request_id='73000000-0000-4000-8000-000000000099'", missingProfileDatabase), 'processing');
+assert.equal(sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='extraction_requests' AND column_name='attempt_count'", missingProfileDatabase), '0');
+
+sql(`
+  INSERT INTO public.extraction_requests(user_id,request_id,fingerprint,status,charged,created_at) VALUES
+    ('71000000-0000-4000-8000-000000000001','71000000-0000-4000-8000-000000000011',repeat('1',64),'processing',true,now()-interval '2 minutes'),
+    ('71000000-0000-4000-8000-000000000001','71000000-0000-4000-8000-000000000012',repeat('2',64),'processing',false,now()-interval '2 minutes'),
+    ('71000000-0000-4000-8000-000000000001','71000000-0000-4000-8000-000000000013',repeat('3',64),'completed',true,now()-interval '2 minutes');
+`, upgradeDatabase);
+file('supabase/migration_phase19_durable_extraction_jobs.sql', upgradeDatabase);
+assert.equal(sql("SELECT credits FROM public.profiles WHERE id='71000000-0000-4000-8000-000000000001'", upgradeDatabase), '8');
 assert.equal(sql("SELECT trial_granted_at='2025-01-02T03:04:05Z'::timestamptz FROM public.profiles WHERE id='71000000-0000-4000-8000-000000000001'", upgradeDatabase), 't');
 assert.equal(sql("SELECT column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='profiles' AND column_name='credits'", upgradeDatabase), '0');
 assert.equal(sql("SELECT enabled FROM public.private_feature_flags WHERE key='non_edu_trial_credits_enabled'", upgradeDatabase), 't');
+assert.equal(sql("SELECT count(*) FROM public.extraction_requests WHERE request_id IN ('71000000-0000-4000-8000-000000000011','71000000-0000-4000-8000-000000000012') AND status='expired' AND failure_code='legacy_migration' AND settled_at IS NOT NULL", upgradeDatabase), '2');
+assert.equal(sql("SELECT status FROM public.extraction_requests WHERE request_id='71000000-0000-4000-8000-000000000013'", upgradeDatabase), 'completed');
 sql(`
   INSERT INTO auth.users(id,email,email_confirmed_at)
   VALUES
@@ -83,7 +133,7 @@ assert.equal(sql(`
 assert.equal(sql("SELECT credits FROM public.profiles WHERE id='71000000-0000-4000-8000-000000000003'", upgradeDatabase), '0');
 assert.equal(sql("SELECT trial_granted_at IS NULL FROM public.profiles WHERE id='71000000-0000-4000-8000-000000000003'", upgradeDatabase), 't');
 assert.equal(sql("SELECT count(*) FROM public.audit_events WHERE event_type='profile.repaired' AND subject_user_id='71000000-0000-4000-8000-000000000003'", upgradeDatabase), '1');
-console.log('Phase 16 -> 17 -> 18 forward upgrade preserved historical state, enabled the launch promotion, and repaired a missing profile at zero credits');
+console.log('Phase 15 -> 18 upgrade preserved state, refunded only charged legacy work, rejected corrupt/colliding rollouts, and repaired a missing profile at zero credits');
 
 sql(`CREATE DATABASE ${database}`, 'postgres');
 console.log(`Disposable test database: ${database}`);
@@ -95,13 +145,43 @@ file('supabase/tests/credit_security.sql');
 file('supabase/tests/anti_abuse_foundation.sql');
 file('supabase/tests/identity_and_trial.sql');
 file('supabase/tests/stripe_payments.sql');
+// Phase 13 and phase 16 regression files predate the durable queue and assert
+// only administrator/no-credit policy through the retired reserve signature.
+// Adapt those historical assertions inside this disposable database, then drop
+// the shim before phase 18 tests verify that the production RPC is absent.
+sql(`
+  CREATE FUNCTION public.reserve_extraction(
+    p_user_id uuid, p_request_id uuid, p_fingerprint text
+  ) RETURNS jsonb LANGUAGE plpgsql AS $$
+  DECLARE result jsonb;
+  BEGIN
+    result := public.enqueue_extraction(
+      p_user_id, p_request_id, p_fingerprint, 'Legacy regression adapter', 1, '',
+      jsonb_build_array(jsonb_build_object(
+        'path', p_user_id::text || '/' || p_request_id::text || '/' || p_request_id::text || '.pdf',
+        'name', 'legacy-regression.pdf', 'type', 'application/pdf', 'size', 42
+      ))
+    );
+    IF result->>'status' = 'queued' THEN
+      result := jsonb_set(result, '{status}', '"reserved"'::jsonb);
+    END IF;
+    RETURN result;
+  END;
+  $$;
+  REVOKE ALL ON FUNCTION public.reserve_extraction(uuid, uuid, text)
+    FROM PUBLIC, anon, authenticated;
+  GRANT EXECUTE ON FUNCTION public.reserve_extraction(uuid, uuid, text)
+    TO service_role;
+`);
 file('supabase/tests/phase13_payment_and_admin_hardening.sql');
 file('supabase/tests/storage_abuse_controls.sql');
 file('supabase/tests/open_signup_trial_flag.sql');
+sql('DROP FUNCTION public.reserve_extraction(uuid, uuid, text)');
 file('supabase/tests/profile_recovery.sql');
+file('supabase/tests/durable_extraction_jobs.sql');
 sql("INSERT INTO auth.users(id,email) VALUES ('10000000-0000-4000-8000-000000000001','atomic@example.edu')");
 file('tests/atomic-credits.sql');
-console.log('Security, identity/trial, payment, storage, feature-flag, profile-recovery, and atomic SQL regression assertions passed');
+console.log('Security, identity/trial, payment, storage, feature-flag, profile-recovery, durable-extraction, and atomic SQL regression assertions passed');
 sql("UPDATE public.profiles SET credits=1 WHERE id='10000000-0000-4000-8000-000000000001'");
 const requestIds = Array.from({ length: 8 }, (_, i) => `30000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 function concurrentSql(input) {
@@ -115,6 +195,177 @@ function concurrentSql(input) {
     child.stdin.end(input);
   });
 }
+
+// Exercise the durable state machine through the same service_role boundary as
+// the worker. Owner writes below are fixture setup/backdating only; every raced
+// transition is an independently connected RPC call with bounded lock/statement
+// timeouts so a deadlock fails the suite instead of hanging it.
+const raceUser = '80000000-0000-4000-8000-000000000001';
+const raceFiles = requestId => JSON.stringify([{
+  path: `${raceUser}/${requestId}/89000000-0000-4000-8000-000000000001.pdf`,
+  name: 'race.pdf', type: 'application/pdf', size: 42,
+}]).replaceAll("'", "''");
+function enqueueRace(requestId, fingerprintCharacter) {
+  assert.equal(sql(`
+    SET request.jwt.claim.role='service_role';
+    SET ROLE service_role;
+    SELECT public.enqueue_extraction(
+      '${raceUser}', '${requestId}', repeat('${fingerprintCharacter}',64),
+      'Durable race', 1, '', '${raceFiles(requestId)}'::jsonb
+    )->>'status';
+  `), 'queued');
+}
+function serviceRace(statement) {
+  return concurrentSql(`
+    SET lock_timeout='5s';
+    SET statement_timeout='10s';
+    SET request.jwt.claim.role='service_role';
+    SET ROLE service_role;
+    ${statement}
+  `);
+}
+
+sql(`
+  INSERT INTO auth.users(id,email,email_confirmed_at)
+  VALUES ('${raceUser}','durable-races@school.edu',now());
+  UPDATE public.profiles SET credits=10 WHERE id='${raceUser}';
+`);
+
+const sameClaimRequest = '81000000-0000-4000-8000-000000000001';
+enqueueRace(sameClaimRequest, '1');
+const sameClaimResults = await Promise.all([
+  serviceRace(`SELECT public.claim_extraction_job('${sameClaimRequest}',
+    '82000000-0000-4000-8000-000000000001',180)->>'status';`),
+  serviceRace(`SELECT public.claim_extraction_job('${sameClaimRequest}',
+    '82000000-0000-4000-8000-000000000002',180)->>'status';`),
+]);
+assert.deepEqual(sameClaimResults.sort(), ['leased', 'processing']);
+assert.equal(sql(`SELECT attempt_count FROM public.extraction_requests
+  WHERE request_id='${sameClaimRequest}'`), '1');
+console.log('Concurrent same-ID claims: one lease owner, one leased response, no deadlock');
+
+const terminalRaceRequest = '81000000-0000-4000-8000-000000000002';
+const terminalRaceLease = '82000000-0000-4000-8000-000000000003';
+enqueueRace(terminalRaceRequest, '2');
+assert.equal(sql(`
+  SET request.jwt.claim.role='service_role'; SET ROLE service_role;
+  SELECT public.claim_extraction_job('${terminalRaceRequest}','${terminalRaceLease}',180)->>'status';
+`), 'processing');
+const terminalRaceResults = await Promise.all([
+  serviceRace(`SELECT public.complete_extraction_job(
+    '${terminalRaceRequest}','${terminalRaceLease}',
+    '[{"category":"Definition","topic":"Race","content":"Once","shorthand":"1","priority":1}]'
+  )->>'status';`),
+  serviceRace(`SELECT public.fail_extraction_job(
+    '${terminalRaceRequest}','${terminalRaceLease}','worker_error',false
+  )->>'status';`),
+]);
+const terminalRaceStatus = sql(`SELECT status FROM public.extraction_requests
+  WHERE request_id='${terminalRaceRequest}'`);
+assert.ok(['completed', 'failed'].includes(terminalRaceStatus));
+assert.deepEqual([...new Set(terminalRaceResults)], [terminalRaceStatus]);
+assert.equal(sql(`SELECT count(*) FROM public.course_materials AS material
+  JOIN public.extraction_requests AS request ON request.material_id=material.id
+  WHERE request.request_id='${terminalRaceRequest}'`), terminalRaceStatus === 'completed' ? '1' : '0');
+console.log('Concurrent complete/fail: one terminal outcome and at most one material, no deadlock');
+
+const expiryRaceRequest = '81000000-0000-4000-8000-000000000003';
+const expiryRaceLease = '82000000-0000-4000-8000-000000000004';
+enqueueRace(expiryRaceRequest, '3');
+sql(`
+  SET request.jwt.claim.role='service_role'; SET ROLE service_role;
+  SELECT public.claim_extraction_job('${expiryRaceRequest}','${expiryRaceLease}',180);
+  RESET ROLE;
+  UPDATE public.extraction_requests SET lease_expires_at=now()-interval '1 second'
+  WHERE request_id='${expiryRaceRequest}';
+`);
+const completeExpiryResults = await Promise.all([
+  serviceRace(`SELECT public.complete_extraction_job(
+    '${expiryRaceRequest}','${expiryRaceLease}',
+    '[{"category":"Definition","topic":"Late","content":"No","shorthand":"0","priority":1}]'
+  )->>'status';`),
+  serviceRace('SELECT public.expire_extraction_jobs(50);'),
+]);
+// SKIP LOCKED may intentionally defer the stale row when completion holds its
+// lock. The next scheduler pass must then settle it, and the two passes together
+// must report it exactly once.
+const expiryFollowUp = JSON.parse(await serviceRace('SELECT public.expire_extraction_jobs(50);'));
+const completeExpirySettlements = [
+  ...JSON.parse(completeExpiryResults[1]).jobs,
+  ...expiryFollowUp.jobs,
+].filter(job => job.requestId === expiryRaceRequest);
+assert.equal(completeExpirySettlements.length, 1);
+assert.equal(sql(`SELECT status FROM public.extraction_requests
+  WHERE request_id='${expiryRaceRequest}'`), 'expired');
+assert.equal(sql(`SELECT count(*) FROM public.course_materials AS material
+  JOIN public.extraction_requests AS request ON request.material_id=material.id
+  WHERE request.request_id='${expiryRaceRequest}'`), '0');
+console.log('Concurrent complete/expiry: expiry wins stale lease exactly once, no late material');
+
+const concurrentExpiryRequest = '81000000-0000-4000-8000-000000000004';
+const concurrentExpiryLease = '82000000-0000-4000-8000-000000000005';
+enqueueRace(concurrentExpiryRequest, '4');
+sql(`
+  SET request.jwt.claim.role='service_role'; SET ROLE service_role;
+  SELECT public.claim_extraction_job('${concurrentExpiryRequest}','${concurrentExpiryLease}',180);
+  RESET ROLE;
+  UPDATE public.extraction_requests SET lease_expires_at=now()-interval '1 second'
+  WHERE request_id='${concurrentExpiryRequest}';
+`);
+const expiryResults = await Promise.all([
+  serviceRace('SELECT public.expire_extraction_jobs(50);'),
+  serviceRace('SELECT public.expire_extraction_jobs(50);'),
+]);
+const expirySettlements = expiryResults
+  .map(result => JSON.parse(result).jobs)
+  .flat()
+  .filter(job => job.requestId === concurrentExpiryRequest);
+assert.equal(expirySettlements.length, 1);
+assert.equal(sql(`SELECT status FROM public.extraction_requests
+  WHERE request_id='${concurrentExpiryRequest}'`), 'expired');
+console.log('Concurrent expiry sweepers: one settlement/refund result, no deadlock');
+
+const cleanupRaceRequest = '81000000-0000-4000-8000-000000000005';
+const cleanupRaceLease = '82000000-0000-4000-8000-000000000006';
+enqueueRace(cleanupRaceRequest, '5');
+sql(`
+  INSERT INTO public.course_material_upload_reservations(path,user_id,size_bytes)
+  VALUES ('${raceUser}/${cleanupRaceRequest}/89000000-0000-4000-8000-000000000001.pdf',
+    '${raceUser}',42);
+  SET request.jwt.claim.role='service_role'; SET ROLE service_role;
+  SELECT public.claim_extraction_job('${cleanupRaceRequest}','${cleanupRaceLease}',180);
+  RESET ROLE;
+  UPDATE public.extraction_requests SET lease_expires_at=now()-interval '1 second'
+  WHERE request_id='${cleanupRaceRequest}';
+  SET request.jwt.claim.role='service_role'; SET ROLE service_role;
+  SELECT public.expire_extraction_jobs(50);
+`);
+const [lateCompletionStatus, cleanupStatus] = await Promise.all([
+  serviceRace(`SELECT public.complete_extraction_job(
+    '${cleanupRaceRequest}','${cleanupRaceLease}',
+    '[{"category":"Definition","topic":"Too late","content":"No","shorthand":"0","priority":1}]'
+  )->>'status';`),
+  serviceRace(`SELECT public.release_extraction_upload_reservations(
+    '${cleanupRaceRequest}'
+  )->>'status';`),
+]);
+assert.equal(lateCompletionStatus, 'expired');
+assert.equal(cleanupStatus, 'released');
+assert.equal(sql(`SELECT count(*) FROM public.course_materials AS material
+  JOIN public.extraction_requests AS request ON request.material_id=material.id
+  WHERE request.request_id='${cleanupRaceRequest}'`), '0');
+assert.equal(sql(`SELECT (uploads_cleaned_at IS NOT NULL)::text FROM public.extraction_requests
+  WHERE request_id='${cleanupRaceRequest}'`), 'true');
+assert.equal(sql(`SELECT count(*) FROM public.course_material_upload_reservations
+  WHERE user_id='${raceUser}' AND path LIKE '%/${cleanupRaceRequest}/%'`), '0');
+
+const expectedRaceCredits = terminalRaceStatus === 'failed' ? '9' : '8';
+assert.equal(sql(`SELECT credits FROM public.profiles WHERE id='${raceUser}'`), expectedRaceCredits);
+assert.equal(sql(`SELECT count(*) FROM public.course_materials AS material
+  JOIN public.extraction_requests AS request ON request.material_id=material.id
+  WHERE request.user_id='${raceUser}'`), terminalRaceStatus === 'completed' ? '1' : '0');
+console.log('Late completion/cleanup: terminal cleanup succeeds, late material is rejected, credits settle exactly once');
+
 sql(`
   INSERT INTO auth.users(id,email,email_confirmed_at)
   VALUES ('e0000000-0000-4000-8000-000000000010','repair-concurrent@example.com',now());
@@ -135,12 +386,19 @@ assert.equal(sql("SELECT count(*) FROM public.audit_events WHERE event_type='pro
 console.log('Eight concurrent profile repairs: exactly one insert and audit event, seven existing results');
 const results = await Promise.all(requestIds.map(id => concurrentSql(`
   SET request.jwt.claim.role='service_role';
-  SELECT public.reserve_extraction('10000000-0000-4000-8000-000000000001','${id}',repeat('a',64))->>'status';
+  SELECT public.enqueue_extraction(
+    '10000000-0000-4000-8000-000000000001',
+    '${id}', repeat('a',64), 'Concurrent credit test', 1, '',
+    jsonb_build_array(jsonb_build_object(
+      'path', '10000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/32000000-0000-4000-8000-000000000001.pdf',
+      'name', 'concurrent.pdf', 'type', 'application/pdf', 'size', 42
+    ))
+  )->>'status';
 `)));
-assert.equal(results.filter(status => status === 'reserved').length, 1);
+assert.equal(results.filter(status => status === 'queued').length, 1);
 assert.equal(results.filter(status => status === 'no_credits').length, 7);
 assert.equal(sql("SELECT credits FROM public.profiles WHERE id='10000000-0000-4000-8000-000000000001'"), '0');
-console.log('Eight concurrent connections: exactly one reservation, seven rejected, balance zero');
+console.log('Eight concurrent enqueue attempts: exactly one queued, seven rejected, balance zero');
 sql(`
   INSERT INTO public.admin_whitelist(email, reason)
   VALUES ('flag-concurrency-admin@example.com', 'Feature-flag concurrency fixture');

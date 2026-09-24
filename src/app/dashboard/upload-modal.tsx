@@ -19,20 +19,33 @@ import {
   validateFileForUpload,
   generateUploadSessionId,
   cleanupUploadedFiles,
-  cleanupAllCourseUploads,
-  cleanupStaleCourseUploads,
   createCourseUploadPath,
   UploadStorageError,
 } from "@/lib/supabase/storage-helpers";
 
-import { UploadCleanupJournal, retryDisposition, type ExtractionPayload } from "@/lib/upload-lifecycle";
+import {
+  ActiveExtractionStore,
+  UploadCleanupJournal,
+  extractionPollDelay,
+  retryDisposition,
+  type ExtractionPayload,
+} from "@/lib/upload-lifecycle";
+import {
+  extractionFailureMessage,
+  parseExtractionStatus,
+  readJsonResponse,
+  type ExtractionStatus,
+} from "@/lib/extraction-jobs";
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (materialId: string) => void;
   credits: number;
   isAdmin: boolean;
+  resumeRequestId?: string | null;
+  onActiveRequestsChange?: (requestIds: string[]) => void;
+  onSettled?: (remainingCredits?: number) => void;
 }
 
 interface UploadedFile {
@@ -54,6 +67,9 @@ export default function UploadModal({
   onSuccess,
   credits,
   isAdmin,
+  resumeRequestId = null,
+  onActiveRequestsChange,
+  onSettled,
 }: UploadModalProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [courseName, setCourseName] = useState("");
@@ -72,10 +88,14 @@ export default function UploadModal({
   const tracked = useRef(new Set<string>());
   const owner = useRef<string | null>(null);
   const journal = useRef<UploadCleanupJournal | null>(null);
+  const activeStore = useRef<ActiveExtractionStore | null>(null);
+  const operationController = useRef<AbortController | null>(null);
+  const operationToken = useRef(0);
+  const pollingRequest = useRef<string | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(resumeRequestId);
+  const [resumeVersion, setResumeVersion] = useState(0);
   const [retryPending, setRetryPending] = useState(false);
-  const [isClearingUploads, setIsClearingUploads] = useState(false);
-  const [cleanupNotice, setCleanupNotice] = useState("");
-  const locked = isProcessing || retryPending || isClearingUploads;
+  const locked = isProcessing || retryPending;
   const flushCleanup = useCallback(async (allowWhileBusy = false) => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -106,19 +126,21 @@ export default function UploadModal({
     } : entry));
   }, [flushCleanup]);
   useEffect(() => {
-    try { journal.current = new UploadCleanupJournal(window.localStorage); } catch { /* private browsing */ }
+    try {
+      journal.current = new UploadCleanupJournal(window.localStorage);
+      activeStore.current = new ActiveExtractionStore(window.localStorage);
+    } catch { /* private browsing */ }
     void flushCleanup();
-    const recoverStaleUploads = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) await cleanupStaleCourseUploads(supabase, user.id);
-    };
-    void recoverStaleUploads();
     const handleOnline = () => {
       if (!busy.current) void flushCleanup();
     };
     window.addEventListener("online", handleOnline);
-    return () => { window.removeEventListener("online", handleOnline); abandon(); };
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      operationController.current?.abort();
+      operationToken.current += 1;
+      abandon();
+    };
   }, [abandon, flushCleanup]);
 
 
@@ -188,41 +210,6 @@ export default function UploadModal({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleClearSavedUploads = async () => {
-    if (busy.current || isClearingUploads) return;
-    if (!window.confirm(
-      "Clear all temporary course-material uploads from failed attempts? Generated cheat sheets will not be deleted.",
-    )) return;
-
-    setIsClearingUploads(true);
-    setCleanupNotice("");
-    setError("");
-    try {
-      const supabase = createClient();
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) throw new Error("You must be logged in to clear saved uploads.");
-      const removed = await cleanupAllCourseUploads(supabase, user.id);
-      if (removed === 0) throw new Error("No saved uploads could be cleared. Please try again.");
-
-      tracked.current.clear();
-      attempt.current = null;
-      setRetryPending(false);
-      setFiles(prev => prev.map(entry => ({
-        ...entry,
-        uploadStatus: "pending" as const,
-        uploadProgress: 0,
-        storageUrl: undefined,
-        storagePath: undefined,
-        error: undefined,
-      })));
-      setCleanupNotice(`Cleared ${removed} temporary upload${removed === 1 ? "" : "s"}. You can generate again now.`);
-    } catch (clearError: unknown) {
-      setError(clearError instanceof Error ? clearError.message : "Unable to clear saved uploads.");
-    } finally {
-      setIsClearingUploads(false);
-    }
-  };
-
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
@@ -232,6 +219,134 @@ export default function UploadModal({
   const adjustTargetPages = (change: number) => {
     setTargetPages((prev) => Math.min(20, Math.max(1, prev + change)));
   };
+
+  const rememberActiveRequest = useCallback((userId: string, requestId: string) => {
+    owner.current = userId;
+    activeStore.current?.save(userId, requestId);
+    setActiveRequestId(requestId);
+    setRetryPending(true);
+    onActiveRequestsChange?.(activeStore.current?.getAll(userId) ?? [requestId]);
+  }, [onActiveRequestsChange]);
+
+  const forgetActiveRequest = useCallback((requestId: string) => {
+    let nextRequestId: string | null = null;
+    if (owner.current) {
+      activeStore.current?.clear(owner.current, requestId);
+      nextRequestId = activeStore.current?.get(owner.current) ?? null;
+    }
+    setActiveRequestId(current => current === requestId ? nextRequestId : current);
+    setRetryPending(Boolean(nextRequestId));
+    onActiveRequestsChange?.(owner.current
+      ? activeStore.current?.getAll(owner.current) ?? []
+      : []);
+  }, [onActiveRequestsChange]);
+
+  const pollUntilTerminal = useCallback(async (
+    requestId: string,
+    initial: ExtractionStatus,
+    signal: AbortSignal,
+  ): Promise<ExtractionStatus> => {
+    let completed = initial;
+    let failedPolls = 0;
+    let nonterminalPolls = 0;
+    const deadline = Date.now() + 16 * 60 * 1000;
+
+    while (completed.status === "queued" || completed.status === "processing") {
+      setProcessingStatus(completed.status === "queued"
+        ? "Queued for generation..."
+        : "Generating cheat sheet...");
+      if (Date.now() >= deadline) {
+        throw new Error("Generation is still running. Close this dialog and check the dashboard shortly");
+      }
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          window.clearTimeout(timeout);
+          reject(new DOMException("Polling stopped", "AbortError"));
+        };
+        const timeout = window.setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, extractionPollDelay(failedPolls, nonterminalPolls));
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+
+      let statusResponse: Response;
+      try {
+        statusResponse = await fetch(`/api/extract/${requestId}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+          signal,
+        });
+      } catch (pollError: unknown) {
+        if (pollError instanceof DOMException && pollError.name === "AbortError") throw pollError;
+        failedPolls += 1;
+        setProcessingStatus("Connection interrupted. Retrying status...");
+        continue;
+      }
+
+      const statusBody = await readJsonResponse(statusResponse);
+      if (!statusResponse.ok) {
+        if (statusResponse.status >= 500 || statusResponse.status === 429) {
+          failedPolls += 1;
+          setProcessingStatus("Status service unavailable. Retrying...");
+          continue;
+        }
+        const statusMessage = typeof statusBody === "object" && statusBody !== null &&
+          "error" in statusBody && typeof statusBody.error === "string"
+          ? statusBody.error : "Unable to read generation status";
+        throw new Error(statusMessage);
+      }
+      try {
+        completed = parseExtractionStatus(statusBody);
+        failedPolls = 0;
+        if (completed.status === "queued" || completed.status === "processing") {
+          nonterminalPolls += 1;
+        }
+      } catch {
+        failedPolls += 1;
+        setProcessingStatus("Received an unreadable status. Retrying...");
+      }
+    }
+    return completed;
+  }, []);
+
+  const handleTerminalStatus = useCallback((
+    completed: ExtractionStatus,
+    requestId: string,
+    paths: string[] = [],
+    signal?: AbortSignal,
+    token?: number,
+  ) => {
+    if (signal?.aborted || (token !== undefined && token !== operationToken.current)) return;
+    if (completed.status !== "completed" && completed.status !== "failed" && completed.status !== "expired") {
+      throw new Error("Generation status did not contain a validated terminal result");
+    }
+
+    // Only discard recovery state after the complete terminal payload has been
+    // validated. A malformed or missing response must remain resumable.
+    journal.current?.forget(paths);
+    for (const path of paths) tracked.current.delete(path);
+    forgetActiveRequest(requestId);
+    attempt.current = null;
+
+    if (completed.status === "failed" || completed.status === "expired") {
+      onSettled?.(completed.remainingCredits);
+      setFiles(prev => prev.map(entry => ({
+        ...entry,
+        uploadStatus: "pending" as const,
+        uploadProgress: 0,
+        storageUrl: undefined,
+        storagePath: undefined,
+        error: undefined,
+      })));
+      throw new Error(extractionFailureMessage(completed));
+    }
+    setProcessingStatus("Done!");
+    setSuccess(true);
+    onSettled?.(completed.remainingCredits);
+    onSuccess(completed.materialId);
+  }, [forgetActiveRequest, onSettled, onSuccess]);
 
   const handleSubmit = async () => {
     if (busy.current) return;
@@ -245,6 +360,15 @@ export default function UploadModal({
     }
 
     busy.current = true;
+    const controller = new AbortController();
+    operationController.current?.abort();
+    operationController.current = controller;
+    const token = ++operationToken.current;
+    const ensureCurrent = () => {
+      if (controller.signal.aborted || token !== operationToken.current) {
+        throw new DOMException("Generation stopped", "AbortError");
+      }
+    };
     setIsProcessing(true);
     setError("");
 
@@ -253,6 +377,7 @@ export default function UploadModal({
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      ensureCurrent();
 
       if (!user) {
         throw new Error("You must be logged in to upload files.");
@@ -318,6 +443,7 @@ export default function UploadModal({
             fileEntry.file,
             preparedPath,
           );
+          ensureCurrent();
 
           // Update file status to uploaded
           setFiles((prev) =>
@@ -385,46 +511,122 @@ export default function UploadModal({
 
       attempt.current = payload;
       for (const path of tracked.current) journal.current?.track(path, true);
-      setRetryPending(true);
+      rememberActiveRequest(user.id, payload.requestId);
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      ensureCurrent();
 
-      const data: unknown = await res.json();
+      const data = await readJsonResponse(res);
+      ensureCurrent();
 
       if (!res.ok) {
         if (retryDisposition(res.status, data) === "restart") {
           attempt.current = null;
-          setRetryPending(false);
+          forgetActiveRequest(payload.requestId);
           await discardTrackedUploads();
         }
-        const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string" ? data.error : "Extraction failed";
+        const message = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+          ? data.error : "The generation service returned an unreadable response.";
         throw new Error(message);
       }
 
-      attempt.current = null;
-      setRetryPending(false);
-      abandon();
-      setProcessingStatus("Done!");
-      setSuccess(true);
-
-      // Wait a moment to show success, then close
-      setTimeout(() => {
-        onSuccess();
-        resetState();
-      }, 1500);
+      let completed: ExtractionStatus;
+      try {
+        completed = parseExtractionStatus(data);
+      } catch {
+        throw new Error("The generation service returned an unreadable response");
+      }
+      pollingRequest.current = payload.requestId;
+      completed = await pollUntilTerminal(payload.requestId, completed, controller.signal);
+      handleTerminalStatus(completed, payload.requestId, payload.fileUrls.map(file => file.path), controller.signal, token);
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       const message =
         err instanceof Error ? err.message : "Something went wrong";
-      setError(attempt.current ? `${message}. Retry to check the same request; your credit will not be charged twice.` : message);
+      setError(activeRequestId || attempt.current
+        ? `${message}. Resume this request to check its status; your credit will not be charged twice.`
+        : message);
       setIsProcessing(false);
       setProcessingStatus("");
     } finally {
+      if (operationController.current === controller) operationController.current = null;
+      pollingRequest.current = null;
       busy.current = false;
     }
   };
+
+  useEffect(() => {
+    if (!isOpen || busy.current || pollingRequest.current) return;
+    let cancelled = false;
+
+    const resume = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+      const requestId = resumeRequestId ?? activeStore.current?.get(user.id) ?? activeRequestId;
+      if (!requestId || cancelled) return;
+
+      rememberActiveRequest(user.id, requestId);
+      const controller = new AbortController();
+      operationController.current?.abort();
+      operationController.current = controller;
+      const token = ++operationToken.current;
+      pollingRequest.current = requestId;
+      busy.current = true;
+      setIsProcessing(true);
+      setError("");
+      try {
+        const completed = await pollUntilTerminal(
+          requestId,
+          { status: "queued" },
+          controller.signal,
+        );
+        handleTerminalStatus(completed, requestId, [], controller.signal, token);
+      } catch (resumeError: unknown) {
+        if (resumeError instanceof DOMException && resumeError.name === "AbortError") return;
+        const message = resumeError instanceof Error
+          ? resumeError.message
+          : "Unable to resume generation status";
+        if (message === "Generation not found") forgetActiveRequest(requestId);
+        const requestStillActive = owner.current !== null &&
+          activeStore.current?.get(owner.current) === requestId;
+        setError(message === "Generation not found"
+          ? "This saved generation no longer exists. Start a new attempt."
+          : requestStillActive
+            ? `${message}. Resume this request to check its status; your credit will not be charged twice.`
+            : message);
+        setProcessingStatus("");
+      } finally {
+        if (pollingRequest.current === requestId) {
+          pollingRequest.current = null;
+          if (operationController.current === controller) operationController.current = null;
+          busy.current = false;
+          setIsProcessing(false);
+        }
+      }
+    };
+
+    void resume();
+    return () => {
+      cancelled = true;
+      if (operationController.current && pollingRequest.current) {
+        operationController.current.abort();
+      }
+    };
+  }, [
+    activeRequestId,
+    forgetActiveRequest,
+    handleTerminalStatus,
+    isOpen,
+    pollUntilTerminal,
+    rememberActiveRequest,
+    resumeRequestId,
+    resumeVersion,
+  ]);
 
   const resetState = useCallback(() => {
     abandon();
@@ -436,25 +638,31 @@ export default function UploadModal({
     setTargetPages(1);
     setDirective("");
     setError("");
-    setCleanupNotice("");
     setSuccess(false);
     setIsProcessing(false);
     setProcessingStatus("");
   }, [abandon]);
 
   const handleClose = useCallback(() => {
-    if (!locked) {
-      resetState();
+    if (activeRequestId) {
+      operationController.current?.abort();
+      operationToken.current += 1;
+      setIsProcessing(false);
       onClose();
+      return;
     }
-  }, [locked, onClose, resetState]);
+    if (locked) return;
+    resetState();
+    onClose();
+  }, [activeRequestId, locked, onClose, resetState]);
 
   const handleRecoveryClose = useCallback(() => {
-    if (isProcessing || !retryPending) return;
-    // Preserve the exact request ID, payload, and files. Reopening the modal
-    // must retry the ambiguous request idempotently rather than spend again.
+    if (!activeRequestId) return;
+    operationController.current?.abort();
+    operationToken.current += 1;
+    setIsProcessing(false);
     onClose();
-  }, [isProcessing, onClose, retryPending]);
+  }, [activeRequestId, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -472,7 +680,7 @@ export default function UploadModal({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !locked) {
+      if (event.key === "Escape" && (!locked || activeRequestId)) {
         event.preventDefault();
         handleClose();
         return;
@@ -503,7 +711,7 @@ export default function UploadModal({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [handleClose, isOpen, locked]);
+  }, [activeRequestId, handleClose, isOpen, locked]);
 
   if (!isOpen) return null;
 
@@ -524,6 +732,9 @@ export default function UploadModal({
         tabIndex={-1}
         className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-0 animate-fade-in focus:outline-none"
       >
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {success ? "Cheat sheet generation complete." : error || processingStatus}
+        </p>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b-[3px] border-black bg-black text-white">
           <div>
@@ -537,7 +748,7 @@ export default function UploadModal({
           </div>
           <button
             onClick={handleClose}
-            disabled={locked}
+            disabled={locked && !activeRequestId}
             aria-label="Close upload dialog"
             className="p-2 border-2 border-transparent hover:border-white transition-colors disabled:opacity-50 cursor-pointer text-white"
           >
@@ -634,21 +845,8 @@ export default function UploadModal({
                 drag and drop
               </p>
               <p className="text-xs font-medium text-neutral-500 mt-2 uppercase">
-                PDF, PNG, JPEG, WebP, GIF — 10 files, 200MB total
+                PDF, PNG, JPEG, WebP, GIF — 20MB each, 200MB total
               </p>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs font-medium text-neutral-500">
-                Storage stuck after a failed attempt? Clear temporary uploads and retry.
-              </p>
-              <button
-                type="button"
-                onClick={handleClearSavedUploads}
-                disabled={locked}
-                className="border-2 border-black bg-white px-3 py-2 text-xs font-bold uppercase text-black hover:bg-neutral-100 disabled:opacity-50"
-              >
-                {isClearingUploads ? "Clearing..." : "Clear saved temporary uploads"}
-              </button>
             </div>
           </div>
 
@@ -735,13 +933,6 @@ export default function UploadModal({
             </div>
           )}
 
-          {cleanupNotice && (
-            <div role="status" className="flex items-start gap-3 p-4 bg-green-50 border-[3px] border-green-600">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-              <p className="text-sm font-bold text-green-600 uppercase mt-0.5">{cleanupNotice}</p>
-            </div>
-          )}
-
           {/* Success */}
           {success && (
             <div role="status" className="flex items-start gap-3 p-4 bg-green-50 border-[3px] border-green-600">
@@ -761,22 +952,34 @@ export default function UploadModal({
           </p>
 
           <div className="flex items-center gap-3">
-            {retryPending && !isProcessing && (
+            {activeRequestId && (
               <button
                 type="button"
                 onClick={handleRecoveryClose}
                 className="px-4 py-3 border-2 border-black bg-white text-black font-bold text-xs uppercase tracking-wider hover:bg-neutral-100"
               >
-                Close and check later
+                {isProcessing ? "Close and check later" : "Close"}
               </button>
             )}
-            <button
-              onClick={handleSubmit}
-              disabled={isProcessing || files.length === 0 || !courseName.trim()}
-              aria-describedby={error ? "upload-error" : undefined}
-              className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
-            >
-              {isProcessing ? (
+            {activeRequestId ? (
+              <button
+                type="button"
+                onClick={() => setResumeVersion(version => version + 1)}
+                disabled={isProcessing}
+                className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" />{processingStatus}</>
+                ) : "Resume status"}
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={isProcessing || files.length === 0 || !courseName.trim()}
+                aria-describedby={error ? "upload-error" : undefined}
+                className="flex items-center gap-2 px-8 py-3 bg-black text-white font-bold text-sm uppercase tracking-widest hover:bg-[#e60000] transition-colors disabled:opacity-50 disabled:hover:bg-black cursor-pointer shadow-[4px_4px_0px_0px_rgba(230,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px]"
+              >
+                {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   {processingStatus}
@@ -784,10 +987,11 @@ export default function UploadModal({
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  {retryPending ? "Retry request" : "Generate"}
+                  Generate
                 </>
               )}
-            </button>
+              </button>
+            )}
           </div>
         </div>
       </div>

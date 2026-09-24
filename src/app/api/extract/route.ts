@@ -1,21 +1,38 @@
 import { createHash } from "node:crypto";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { extractFromMaterials } from "@/lib/gemini";
+import { readExtractionRequest, ExtractionValidationError } from "@/lib/extraction-validation";
+import { creditCall } from "@/lib/extraction-credits";
+import { dispatchCancellationDisposition } from "@/lib/extraction-jobs";
 import { NextResponse } from "next/server";
-import { cleanupUploadedFiles } from "@/lib/supabase/storage-helpers";
-import { readExtractionRequest, downloadExtractionFiles, ExtractionValidationError } from "@/lib/extraction-validation";
-import { creditCall, finishExtraction } from "@/lib/extraction-credits";
 
-export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
+async function dispatchExtraction(requestId: string) {
+  const appUrl = process.env.APP_URL;
+  const secret = process.env.EXTRACTION_DISPATCH_SECRET;
+  if (!appUrl || !secret || secret.length < 32) throw new Error("Extraction worker is not configured");
+  const endpoint = new URL("/internal/extraction-worker", appUrl);
+  if (!["https:", "http:"].includes(endpoint.protocol) ||
+      (endpoint.protocol === "http:" && !["localhost", "127.0.0.1"].includes(endpoint.hostname))) {
+    throw new Error("Extraction worker URL is invalid");
+  }
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({ requestId }),
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (response.status !== 202) throw new Error("Extraction worker rejected dispatch");
+}
+
 export async function POST(request: Request) {
-  let cleanupClient: Awaited<ReturnType<typeof createClient>> | null = null;
-  let failedUploadPaths: string[] = [];
   try {
     const supabase = await createClient();
-    cleanupClient = supabase;
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -26,9 +43,6 @@ export async function POST(request: Request) {
     }
     const payload = await readExtractionRequest(request, user.id, storageOrigin);
     const { requestId, courseName, userDirective, targetPages, fileUrls } = payload;
-    failedUploadPaths = fileUrls.map((file) => file.path);
-    // Signed URL tokens may rotate on retry. Stable object identity and all
-    // extraction settings bind the idempotency key to the original operation.
     const fingerprint = createHash("sha256").update(JSON.stringify({
       courseName, userDirective, targetPages,
       files: fileUrls.map(({ path, name, type, size }) => ({ path, name, type, size })),
@@ -37,66 +51,64 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const rpc = privileged.rpc.bind(privileged);
-    const identity = { p_user_id: user.id, p_request_id: requestId };
-    const reservation = await creditCall(rpc, "reserve_extraction", {
-      ...identity, p_fingerprint: fingerprint,
+    const result = await creditCall(rpc, "enqueue_extraction", {
+      p_user_id: user.id,
+      p_request_id: requestId,
+      p_fingerprint: fingerprint,
+      p_course_name: courseName,
+      p_target_pages: targetPages,
+      p_user_directive: userDirective,
+      p_files: fileUrls.map(({ path, name, type, size }) => ({ path, name, type, size })),
     });
-    if (reservation.status === "no_credits") {
+    if (result.status === "no_credits") {
       return NextResponse.json({ error: "No credits remaining" }, { status: 403 });
-    }
-    if (reservation.status === "processing") {
-      return NextResponse.json({ error: "This extraction is still processing.", code: "EXTRACTION_PROCESSING" }, { status: 409 });
-    }
-    if (reservation.status === "account_held") {
-      return NextResponse.json({ error: "This account is under review.", code: "ACCOUNT_HELD" }, { status: 423 });
-    }
-    if (reservation.status === "failed" || reservation.status === "conflict") {
-      return NextResponse.json({ error: "Start a new extraction attempt to retry.", code: "EXTRACTION_RESTART_REQUIRED" }, { status: 409 });
-    }
-    let result = reservation;
-    if (reservation.status === "reserved") {
-      result = await finishExtraction({
-        rpc, identity,
-        generate: async () => extractFromMaterials(await downloadExtractionFiles(fileUrls), userDirective),
-        completion: { p_course_name: courseName, p_target_pages: targetPages, p_user_directive: userDirective.slice(0, 500) },
-      });
-    } else if (reservation.status !== "completed") {
-      throw new Error("Unexpected reservation status");
     }
     if (result.status === "account_held") {
       return NextResponse.json({ error: "This account is under review.", code: "ACCOUNT_HELD" }, { status: 423 });
     }
-    if (!result.materialId) throw new Error("Saved extraction is unavailable");
-    // A cleanup failure must not turn committed work into a failed extraction.
-    // Retry of the same request safely repeats cleanup without generating again.
-    let cleanupPending = false;
-    try {
-      cleanupPending = !(await cleanupUploadedFiles(supabase, fileUrls.map((file) => file.path)));
-    } catch {
-      cleanupPending = true;
+    if (result.status === "conflict" || result.status === "failed" || result.status === "expired") {
+      return NextResponse.json({ error: "Start a new extraction attempt to retry.", code: "EXTRACTION_RESTART_REQUIRED" }, { status: 409 });
     }
-    return NextResponse.json({ success: true, materialId: result.materialId, remainingCredits: result.remainingCredits, cleanupPending });
+    if (result.status === "completed" && result.materialId) {
+      return NextResponse.json({
+        status: "completed", materialId: result.materialId,
+        remainingCredits: result.remainingCredits,
+      });
+    }
+    if (result.status === "processing") {
+      return NextResponse.json({ status: "processing", requestId, remainingCredits: result.remainingCredits }, { status: 202 });
+    }
+    if (result.status !== "queued") throw new Error("Unexpected extraction job state");
+
+    try {
+      await dispatchExtraction(requestId);
+    } catch {
+      const cancelled = await creditCall(rpc, "cancel_extraction_dispatch", {
+        p_user_id: user.id, p_request_id: requestId,
+      });
+      // If dispatch succeeded but its response was lost, the worker may already
+      // own the lease. Keep that authoritative job alive and let the UI poll.
+      const disposition = dispatchCancellationDisposition(cancelled.status);
+      if (disposition === "refunded") {
+        return NextResponse.json({
+          error: "Generation could not be queued. Your credit was restored.",
+          code: "EXTRACTION_RESTART_REQUIRED",
+          remainingCredits: cancelled.remainingCredits,
+        }, { status: 503 });
+      }
+      if (disposition === "unknown") {
+        throw new Error("Unable to resolve extraction dispatch");
+      }
+    }
+
+    return NextResponse.json({
+      status: "queued", requestId, remainingCredits: result.remainingCredits,
+    }, { status: 202 });
   } catch (error: unknown) {
     if (error instanceof ExtractionValidationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    // A response from this catch is a known terminal failure: finishExtraction
-    // has already settled the credit reservation and this request ID cannot be
-    // reused. Clear its uploads so they do not strand the user's storage quota.
-    // A transport failure where the browser receives no response remains
-    // ambiguous and is still preserved client-side for an idempotent retry.
-    if (cleanupClient && failedUploadPaths.length > 0) {
-      try {
-        await cleanupUploadedFiles(cleanupClient, failedUploadPaths);
-      } catch {
-        // The browser also journals these paths for an idempotent cleanup retry.
-      }
-    }
-    // Never return provider diagnostics, signed URLs, or database internals.
-    console.error("[Extract API] Extraction attempt failed");
-    return NextResponse.json({
-      error: "Extraction failed. Please try again. The failed upload batch was cleared.",
-      code: "EXTRACTION_RESTART_REQUIRED",
-    }, { status: 500 });
+    console.error("[Extract API] Unable to enqueue extraction");
+    return NextResponse.json({ error: "Generation could not be started. Please try again." }, { status: 500 });
   }
 }

@@ -6,8 +6,7 @@
   package = "@netlify/plugin-nextjs"
 
 [functions]
-  # Increase timeout for API routes (extraction can take time)
-  # Free tier: max 10s, Pro tier: max 26s
+  # Long-running generation is configured as a Background Function in code.
   node_bundler = "esbuild"
 
 # Optimize for Next.js App Router

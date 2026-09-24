@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { MAX_EXTRACTION_FILE_SIZE } from "../extraction-limits.ts";
 
 export class UploadStorageError extends Error {
   readonly storagePath: string;
@@ -195,62 +196,6 @@ export async function cleanupUploadedFiles(
 }
 
 /**
- * Recover uploads abandoned by a browser that could not persist its cleanup
- * journal. Only files older than the cutoff are removed, and deletion still
- * flows through Storage before the matching reservation is released.
- */
-export async function cleanupStaleCourseUploads(
-  supabase: SupabaseClient,
-  userId: string,
-  cutoff: Date | null = new Date(Date.now() - 24 * 60 * 60 * 1000),
-): Promise<number> {
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(userId) ||
-      (cutoff !== null && !Number.isFinite(cutoff.getTime()))) return 0;
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || user?.id !== userId) return 0;
-
-  const { data: sessions, error: sessionError } = await supabase.storage
-    .from("course-materials")
-    .list(userId, { limit: 100 });
-  if (sessionError || !sessions) return 0;
-
-  const stalePaths: string[] = [];
-  for (const session of sessions) {
-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(session.name)) continue;
-    const { data: objects, error } = await supabase.storage
-      .from("course-materials")
-      .list(`${userId}/${session.name}`, { limit: 100 });
-    if (error || !objects) continue;
-    for (const object of objects) {
-      const timestamp = object.updated_at ?? object.created_at;
-      if (!timestamp || (cutoff !== null && new Date(timestamp).getTime() >= cutoff.getTime()) ||
-          !/^[0-9a-f]{8}-[0-9a-f-]{27}\.(pdf|png|jpg|jpeg|webp|gif)$/i.test(object.name)) {
-        continue;
-      }
-      stalePaths.push(`${userId}/${session.name}/${object.name}`);
-    }
-  }
-
-  let removed = 0;
-  for (let index = 0; index < stalePaths.length; index += 10) {
-    const batch = stalePaths.slice(index, index + 10);
-    if (await cleanupUploadedFiles(supabase, batch)) removed += batch.length;
-  }
-  return removed;
-}
-
-/**
- * Explicit user recovery for temporary uploads left by failed attempts.
- * Generated cheat sheets live in Postgres and are not affected.
- */
-export async function cleanupAllCourseUploads(
-  supabase: SupabaseClient,
-  userId: string,
-): Promise<number> {
-  return cleanupStaleCourseUploads(supabase, userId, null);
-}
-
-/**
  * Check if a URL is a valid Supabase Storage signed URL
  *
  * @param url - URL to validate
@@ -301,13 +246,13 @@ export function generateUploadSessionId(): string {
  * Validate file before upload
  *
  * @param file - File to validate
- * @param maxSize - Maximum file size in bytes (default 200MB)
+ * @param maxSize - Maximum file size in bytes (default 20MB provider-safe ceiling)
  * @param allowedTypes - Array of allowed MIME types
  * @throws Error if validation fails
  */
 export function validateFileForUpload(
   file: File,
-  maxSize: number = 200 * 1024 * 1024, // 200MB
+  maxSize: number = MAX_EXTRACTION_FILE_SIZE,
   allowedTypes: string[] = [
     "application/pdf",
     "image/png",

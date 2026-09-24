@@ -35,13 +35,23 @@ STRIPE_SECRET_KEY=<test-mode secret key>
 STRIPE_WEBHOOK_SECRET=<Stripe CLI or test endpoint signing secret>
 STRIPE_PRICE_ID=<one-time $3.00 USD Price ID>
 APP_URL=http://127.0.0.1:3000
+EXTRACTION_DISPATCH_SECRET=<at-least-32-random-bytes>
 ```
 
-Start the local app:
+Start the local app for routine UI work:
 
 ```sh
 npm run dev -- --hostname 127.0.0.1
 ```
+
+Production generation queues a durable Supabase job, dispatches a protected
+Netlify Background Function, and polls an owner-scoped status route. Local
+end-to-end generation requires `netlify dev`, not plain `next dev`, so the
+background function is available. Apply phase 19 before deploying the matching
+application/functions, and keep `EXTRACTION_DISPATCH_SECRET` available to both
+runtimes. See the [generation incident record](docs/production-generation-incident-2026-09-22.md)
+for rollout and recovery details. Routine checks use synthetic fixtures; live
+Gemini or hosted-database checks require explicit authorization.
 
 Restart Next.js whenever `.env.local` changes. For a fresh database, apply the
 generated `supabase/bootstrap.sql` in one execution. Do not apply only an early

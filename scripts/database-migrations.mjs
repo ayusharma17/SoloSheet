@@ -17,4 +17,5 @@ export const databaseMigrations = [
   "migration_phase16_auth_confirmation_compatibility.sql",
   "migration_phase17_open_signup_trial_flag.sql",
   "migration_phase18_profile_recovery.sql",
+  "migration_phase19_durable_extraction_jobs.sql",
 ];
