@@ -23,7 +23,7 @@
     "@google/genai": "^1.43.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.98.0",
-    "katex": "^0.16.33",
+    "katex": "^0.18.7",
     "lucide-react": "^0.577.0",
     "next": "16.3.5",
     "pdf-lib": "^1.17.1",
