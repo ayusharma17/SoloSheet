@@ -28,7 +28,7 @@
     "next": "16.3.5",
     "pdf-lib": "^1.17.1",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react-dom": "19.3.0",
     "react-latex-next": "^3.0.0",
     "stripe": "^22.6.2"
   },
